@@ -425,7 +425,9 @@ function InviteModal({ onClose, showToast, isSuperAdmin }) {
 }
 
 function EditUserModal({ target, onClose, showToast, isSuperAdmin }) {
+  const { departments } = useApp()
   const [form, setForm] = useState({
+    departamentoId: target.departamentoId || '',
     name: target.name || '',
     email: target.email || '',
     position: target.position || '',
@@ -443,6 +445,7 @@ function EditUserModal({ target, onClose, showToast, isSuperAdmin }) {
         position: form.position.trim(),
         phone: form.phone.trim(),
         bio: form.bio.trim(),
+        departamentoId: form.departamentoId || '',
       }
       // Solo el Super Admin puede cambiar el correo de contacto
       if (isSuperAdmin && form.email.trim()) {
@@ -487,6 +490,19 @@ function EditUserModal({ target, onClose, showToast, isSuperAdmin }) {
               onChange={e => setForm(f => ({ ...f, position: e.target.value }))}
               placeholder="Ej. Diseñadora" />
           </div>
+          {departments.length > 0 && (
+            <div className="form-group">
+              <label className="form-label">Departamento</label>
+              <select className="form-select" value={form.departamentoId}
+                onChange={e => setForm(f => ({ ...f, departamentoId: e.target.value }))}>
+                <option value="">— Ninguno —</option>
+                {departments.filter(d => d.activo !== false).map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+              </select>
+              <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                Verá y podrá tomar las tareas asignadas a su departamento.
+              </span>
+            </div>
+          )}
           <div className="form-group">
             <label className="form-label">Teléfono</label>
             <input className="form-input" value={form.phone}

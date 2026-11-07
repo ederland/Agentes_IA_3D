@@ -107,3 +107,9 @@ export const PROVIDER_PRESETS = [
   { id: 'openrouter', nombre: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', modelos: [], ayuda: 'Una clave para muchos modelos; los que terminan en ":free" son gratis.' },
   { id: 'ollama', nombre: 'Ollama (en tu PC)', baseUrl: 'http://localhost:11434/v1', modelos: [], ayuda: 'Modelos locales: no sale nada de tu PC. No necesita clave.' },
 ]
+
+// Tareas para un departamento completo: quedan sin asignado (asignado = '') con paraDepartamento = true
+// hasta que una persona del departamento la toma o el motor se la da a uno de sus agentes.
+export const DEPT_PREFIX = 'dept:'
+export const esDeDepartamento = (t) => !!t?.paraDepartamento && !t?.asignado
+export const deptDeAgente = (a, catalogo) => a?.departamentoId || catalogo?.roles?.[a?.rol]?.departamento || ''

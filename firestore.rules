@@ -54,8 +54,22 @@ service cloud.firestore {
           (resource.data.estado == 'pendiente' && request.resource.data.asignado == request.auth.uid)
         )) ||
         // El robot solo toca tareas de agentes y no puede reasignarlas
-        (isAgentBot() && isAgentTask(resource.data) && request.resource.data.asignado == resource.data.asignado)
+        (isAgentBot() && isAgentTask(resource.data) && request.resource.data.asignado == resource.data.asignado) ||
+        // ...salvo una tarea de departamento sin tomar, que puede dar a uno de los agentes
+        (isAgentBot() && resource.data.get('paraDepartamento', false) == true && resource.data.asignado == ''
+          && resource.data.estado == 'pendiente' && isAgentTask(request.resource.data))
       );
+      allow delete: if isAdmin();
+    }
+
+    // Skills desde el panel: el admin pide (buscar, revisar, instalar…) y solo el motor responde.
+    // El resultado de una revisión lo escribe solo el robot: el panel no puede falsificarlo.
+    match /skillOps/{opId} {
+      allow read: if isAdmin() || isAgentBot();
+      allow create: if isAdmin() && request.resource.data.estado == 'pendiente'
+        && request.resource.data.tipo in ['buscar', 'revisar', 'instalar', 'actualizar', 'desinstalar']
+        && !('resultado' in request.resource.data);
+      allow update: if isAgentBot();
       allow delete: if isAdmin();
     }
 

@@ -26,6 +26,15 @@ Proyecto de código abierto: una oficina 3D con agentes de IA para cualquier neg
   `modelo.proveedor = 'alterno'` usa `ALT_LLM_*` de `motor/.env`.
 - Skills por agente (`agents.skills`): el motor publica las skills instaladas en `config/agentWorker.skills`.
   Lecciones por agente (`agents.aprendizajes`) y por cliente (`clients.aprendizajes`) se agregan desde la revisión.
+- Buscador de skills (Agencia → Skills): el panel crea pedidos en `skillOps` (buscar, revisar, instalar, actualizar,
+  desinstalar) y solo el motor los responde (`motor/skills.mjs`). Busca en skills.sh o en un repo de GitHub, descarga a
+  `motor/.skills-cuarentena/`, analiza sin ejecutar nada e instala en `motor/.claude/skills/` solo la revisión aprobada
+  (mismo commit). El origen de cada skill queda en `motor/.claude/skills-origen.json`. Fuentes confiables:
+  `FUENTES_BASE` + `negocio.json → fuentesSkills`.
+- Tareas de departamento: `asignado: ''` + `paraDepartamento: true` + `departamentoId`. Las personas tienen
+  `users.departamentoId`. La toma quien llegue primero; si nadie del equipo humano la toma en
+  `negocio.json → esperaDepartamentoMin` (30 min), el motor se la da a un agente del departamento.
+  Agencia → Tareas muestra la misma colección `tasks` agrupada por departamento.
 - `firestore.rules` — reglas de seguridad. `tools/configurar.mjs` las personaliza.
 - `.claude/skills/instalar/` — asistente de instalación.
 

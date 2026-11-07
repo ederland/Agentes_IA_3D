@@ -6,7 +6,7 @@ import { logWork } from '../utils/worklog.js'
 import { sendTaskAssignedEmail } from '../utils/emailNotify.js'
 import Icon from './Icons.jsx'
 import ReviewPanel from './ReviewPanel.jsx'
-import { toLines, fromLines } from '../agencia.js'
+import { toLines, fromLines, DEPT_PREFIX } from '../agencia.js'
 
 export default function TaskForm() {
   const { user, users, agents, clients, clientDocs, departments, taskTypes, userProfile, editingTask, closeTaskForm, showToast, sendNotification, isAdmin, isSuperAdmin } = useApp()
@@ -56,7 +56,7 @@ export default function TaskForm() {
       setForm({
         tarea: editingTask.tarea || '',
         descripcion: editingTask.descripcion || '',
-        asignado: editingTask.asignado || user.uid,
+        asignado: editingTask.asignado || (editingTask.paraDepartamento && editingTask.departamentoId ? DEPT_PREFIX + editingTask.departamentoId : user.uid),
         cliente: editingTask.cliente || '',
         prioridad: editingTask.prioridad || 'media',
         estado: editingTask.estado || 'pendiente',
@@ -83,9 +83,12 @@ export default function TaskForm() {
   }, [editingTask])
 
   // Campos de Agencia que se guardan en la tarea
+  const deptAsignado = form.asignado.startsWith(DEPT_PREFIX) ? form.asignado.slice(DEPT_PREFIX.length) : ''
   const agencyFields = () => ({
+    asignado: deptAsignado ? '' : form.asignado,
+    paraDepartamento: !!deptAsignado,
     clienteId: clientDocs.find(c => c.nombre === form.cliente)?.id || '',
-    departamentoId: brief.departamentoId || tipo?.departamento || '',
+    departamentoId: deptAsignado || brief.departamentoId || tipo?.departamento || '',
     tipoTareaId: brief.tipoTareaId || '',
     capacidad: tipo?.capacidad || 'general',
     brief: {
@@ -150,10 +153,24 @@ export default function TaskForm() {
     return updates
   }
 
+  // Tarea para todo un departamento: aviso por correo a cada persona que pertenece a él
+  const avisarDepartamento = (deptId) => {
+    const nombre = departments.find(d => d.id === deptId)?.nombre || deptId
+    users.filter(u => u.departamentoId === deptId && u.role !== 'pending' && u.uid !== user.uid && u.email).forEach(u =>
+      sendTaskAssignedEmail({
+        toEmail: u.email, toName: u.name, taskName: `${form.tarea} (para ${nombre}: la toma quien llegue primero)`,
+        cliente: form.cliente, prioridad: form.prioridad, vencimiento: form.fechaVencimiento || '',
+        assignedBy: userProfile?.name || user.email,
+      }))
+  }
+
   const handleSave = async () => {
     if (!form.tarea.trim()) { showToast('Ingresa el nombre de la tarea', 'error'); return }
     const falta = (tipo?.plantillaBrief || []).find(c => c.requerido && !String(brief.campos[c.campo] ?? '').trim())
     if (falta) { showToast(`Falta "${falta.etiqueta}" en el brief`, 'error'); return }
+    if (deptAsignado && form.estado !== 'pendiente') {
+      showToast('Una tarea de departamento queda "Pendiente" hasta que alguien la tome', 'error'); return
+    }
     setSaving(true)
     try {
       if (isEdit) {
@@ -183,8 +200,9 @@ export default function TaskForm() {
           }
         }
 
+        if (deptAsignado && !(editingTask.paraDepartamento && !editingTask.asignado)) avisarDepartamento(deptAsignado)
         // Notify if newly assigned to someone else
-        if (form.asignado !== editingTask.asignado) {
+        if (!deptAsignado && form.asignado !== editingTask.asignado) {
           const assignedUser = users.find(u => u.uid === form.asignado)
           if (assignedUser && form.asignado !== user.uid) {
             sendNotification('📋 Nueva tarea asignada', `"${form.tarea}" fue asignada a ${assignedUser.name}`)
@@ -228,9 +246,10 @@ export default function TaskForm() {
         }
         await addDoc(collection(db, 'tasks'), newTask)
         showToast('Tarea creada ✓')
+        if (deptAsignado) avisarDepartamento(deptAsignado)
 
         // Email si la tarea es para otra persona
-        if (form.asignado !== user.uid) {
+        if (!deptAsignado && form.asignado !== user.uid) {
           const assignedUser = users.find(u => u.uid === form.asignado)
           if (assignedUser?.email) {
             sendTaskAssignedEmail({
@@ -363,9 +382,20 @@ export default function TaskForm() {
                 <select
                   className="form-select"
                   value={form.asignado}
-                  onChange={e => setField('asignado', e.target.value)}
+                  onChange={e => {
+                    const v = e.target.value
+                    setField('asignado', v)
+                    if (v.startsWith(DEPT_PREFIX)) setB('departamentoId', v.slice(DEPT_PREFIX.length))
+                  }}
                   disabled={!isAdmin}
                 >
+                  {departments.some(d => d.activo !== false) && (
+                    <optgroup label="Departamento (lo toma cualquiera)">
+                      {departments.filter(d => d.activo !== false).map(d => (
+                        <option key={d.id} value={DEPT_PREFIX + d.id}>{d.nombre} · todo el equipo</option>
+                      ))}
+                    </optgroup>
+                  )}
                   <optgroup label="Equipo">
                     {users.filter(u => u.role !== 'pending').map(u => (
                       <option key={u.uid} value={u.uid}>{u.name}</option>

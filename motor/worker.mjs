@@ -14,6 +14,7 @@ import {
   serverTimestamp, increment,
 } from 'firebase/firestore'
 import { startTelegram } from './telegram.mjs'
+import { crearSkills } from './skills.mjs'
 import { lista, safeName, clientContext, briefSection as briefPuro, parseReview } from './agencia.mjs'
 import { spawn } from 'node:child_process'
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync, existsSync, readdirSync, statSync, cpSync, copyFileSync } from 'node:fs'
@@ -92,13 +93,18 @@ let stopping = false
 
 const heartbeat = (extra = {}) =>
   setDoc(doc(db, 'config', 'agentWorker'), {
-    online: !stopping, lastSeen: serverTimestamp(), host: os.hostname(), busyWith, skills: installedSkills(), ...extra,
+    online: !stopping, lastSeen: serverTimestamp(), host: os.hostname(), busyWith, skills: installedSkills(),
+    fuentesSkills: skillsMgr.fuentes(), ...extra,
   }, { merge: true }).then(() => true, e => { log('No pude actualizar el latido:', e.code || e.message); return false })
 
 // Skills de Claude Code instaladas en este PC (las del motor y las del usuario), para el panel
+const skillsMgr = crearSkills({ ROOT, log: (...a) => log(...a), fuentesExtra: () => loadNegocio().fuentesSkills || [] })
+
 function installedSkills() {
   const out = new Map()
+  const origen = new Map(skillsMgr.leerOrigen().map(o => [o.nombre, o]))
   for (const dir of [join(ROOT, '.claude', 'skills'), join(os.homedir(), '.claude', 'skills')]) {
+    const delMotor = dir === join(ROOT, '.claude', 'skills')
     let names = []
     try { names = readdirSync(dir) } catch { continue }
     for (const name of names) {
@@ -106,10 +112,73 @@ function installedSkills() {
       if (out.has(name) || !existsSync(file)) continue
       const head = (() => { try { return readFileSync(file, 'utf8').slice(0, 1500) } catch { return '' } })()
       const descripcion = (head.match(/^description:\s*(.+)$/m)?.[1] || '').replace(/^["']|["']$/g, '').slice(0, 200)
-      out.set(name, { nombre: name, descripcion })
+      const o = delMotor ? origen.get(name) : null
+      out.set(name, {
+        nombre: name, descripcion, ubicacion: delMotor ? 'motor' : 'usuario',
+        ...(o ? { repo: o.repo, commit: o.commit, instalada: o.instalada } : {}),
+      })
     }
   }
-  return [...out.values()].slice(0, 80)
+  return [...out.values()].slice(0, 150)
+}
+
+// ---------- Skills desde el panel (colección skillOps) ----------
+const skillOpsVistas = new Set()
+let skillCola = Promise.resolve()
+function encolarSkillOp(op) {
+  if (skillOpsVistas.has(op.id)) return
+  skillOpsVistas.add(op.id)
+  skillCola = skillCola.then(() => atenderSkillOp(op)).catch(() => {})
+}
+async function atenderSkillOp(op) {
+  const ref = doc(db, 'skillOps', op.id)
+  const creada = op.createdAt?.toMillis?.() || Date.now()
+  if (Date.now() - creada > 60 * 60 * 1000) { await updateDoc(ref, { estado: 'error', error: 'El pedido caducó (el motor estaba apagado)' }).catch(() => {}); return }
+  try {
+    await updateDoc(ref, { estado: 'trabajando' })
+    let resultado
+    if (op.tipo === 'buscar') resultado = await skillsMgr.buscar(op.q)
+    else if (op.tipo === 'revisar') resultado = await skillsMgr.revisar({ source: op.source, skillId: op.skillId, ruta: op.ruta || '' })
+    else if (op.tipo === 'instalar') {
+      // Solo se instala lo que el propio motor revisó (el resultado de la revisión lo escribe solo el robot)
+      const rev = (await getDoc(doc(db, 'skillOps', op.revisionId || '_'))).data()
+      if (rev?.tipo !== 'revisar' && rev?.tipo !== 'actualizar') throw new Error('Primero revisa la skill')
+      resultado = await skillsMgr.instalar(rev.resultado, { reemplazar: !!op.reemplazar })
+    } else if (op.tipo === 'actualizar') resultado = await skillsMgr.actualizar(op.nombre)
+    else if (op.tipo === 'desinstalar') resultado = skillsMgr.desinstalar(op.nombre)
+    else throw new Error('Operación desconocida')
+    await updateDoc(ref, { estado: 'listo', resultado, terminadoAt: serverTimestamp() })
+    if (op.tipo === 'instalar' || op.tipo === 'desinstalar') heartbeat()
+  } catch (e) {
+    log(`Skills (${op.tipo}):`, e.message)
+    await updateDoc(ref, { estado: 'error', error: String(e.message || e).slice(0, 300) }).catch(() => {})
+  }
+}
+
+// ---------- Tareas para un departamento: si nadie del equipo humano la toma, va a un agente ----------
+const reclamando = new Set()
+async function repartirTareasDeDepartamento() {
+  const espera = Number(loadNegocio().esperaDepartamentoMin ?? 30)
+  for (const t of tasks.values()) {
+    if (!t.paraDepartamento || t.asignado || t.estado !== 'pendiente' || !t.departamentoId || reclamando.has(t.id)) continue
+    const delDepto = [...agents.values()].filter(a => a.active !== false && (a.departamentoId || perfilDe(a).departamento) === t.departamentoId)
+    if (!delDepto.length) continue
+    const humanos = [...users.values()].filter(u => u.departamentoId === t.departamentoId && u.role && u.role !== 'pending')
+    const minutos = (Date.now() - (t.createdAt?.toMillis?.() || Date.now())) / 60000
+    if (humanos.length && minutos < espera) continue // primero tiene la oportunidad el equipo humano
+    const tipo = taskTypesById.get(t.tipoTareaId)
+    const carga = (a) => [...tasks.values()].filter(x => x.asignado === a.id).length
+    const candidatos = delDepto.filter(a => !isCoordinador(a)).length ? delDepto.filter(a => !isCoordinador(a)) : delDepto
+    const elegido = candidatos.find(a => tipo?.rol && a.rol === tipo.rol) || candidatos.sort((a, b) => carga(a) - carga(b))[0]
+    reclamando.add(t.id)
+    try {
+      await updateDoc(doc(db, 'tasks', t.id), { asignado: elegido.id, tomadaPor: 'motor', lastEditedBy: env.AGENT_EMAIL, lastEditedAt: serverTimestamp() })
+      log(`Tarea de departamento "${t.tarea}" → ${elegido.name}`)
+    } catch (e) {
+      log('No pude asignar la tarea de departamento:', e.code || e.message)
+      setTimeout(() => reclamando.delete(t.id), 10 * 60_000) // reintenta más tarde
+    }
+  }
 }
 
 // ---------- qué tareas toma el motor ----------
@@ -1049,7 +1118,18 @@ async function main() {
     tasks.clear()
     snap.forEach(d => tasks.set(d.id, { id: d.id, ...d.data() }))
     pump()
+    repartirTareasDeDepartamento()
   }, e => log('Error leyendo tareas:', e.code || e.message))
+
+  // Pedidos del panel para buscar, revisar e instalar skills
+  // Si las reglas aún no están publicadas, reintenta cada minuto sin reiniciar el motor
+  const escucharSkillOps = () => onSnapshot(query(collection(db, 'skillOps'), where('estado', '==', 'pendiente')), snap => {
+    snap.forEach(d => encolarSkillOp({ id: d.id, ...d.data() }))
+  }, e => {
+    log('Pedidos de skills sin acceso (publica las reglas de Firestore); reintento en 1 min:', e.code || e.message)
+    setTimeout(escucharSkillOps, 60_000)
+  })
+  escucharSkillOps()
 
   onSnapshot(collection(db, 'users'), snap => {
     users.clear()
@@ -1087,6 +1167,7 @@ async function main() {
 
   await heartbeat()
   setInterval(heartbeat, 60_000)
+  setInterval(repartirTareasDeDepartamento, 60_000)
   log('Motor encendido. Esperando tareas de los agentes… (Ctrl + C para apagar)')
 }
 
