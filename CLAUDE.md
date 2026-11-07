@@ -42,6 +42,12 @@ Proyecto de código abierto: una oficina 3D con agentes de IA para cualquier neg
 - Permisos por tarea: `toolsFor(agent, t)` = grupos del rol + `taskTypes.herramientas` + `tasks.permisosExtra`
   (`permisosDeTarea` en `motor/agencia.mjs`, solo nombres de grupos del catálogo). Solo un admin puede poner o cambiar
   `permisosExtra` (reglas `sinPermisosNuevos` / `mismosPermisos`). Una tarea con permisos extra siempre va a Claude Code.
+- Tareas programadas: colección `schedules` ({nombre, activo, regla, plantilla, proximaEjecucion, ultimaTareaId,
+  totalCreadas}). Cálculo de fechas en `motor/programadas.mjs` (puro, con pruebas; el panel lo importa).
+  `revisarProgramadas()` corre cada minuto: crea la tarea con `programadaId`, calcula la próxima desde AHORA (sin
+  atrasadas acumuladas) y se salta si la anterior sigue pendiente. El coordinador crea rutinas con el bloque
+  ```programar```. Reglas: el robot solo crea tareas que coinciden con su rutina (`esDeRutina`) y solo actualiza
+  las marcas de ejecución.
 - `firestore.rules` — reglas de seguridad. `tools/configurar.mjs` las personaliza.
 - `.claude/skills/instalar/` — asistente de instalación.
 

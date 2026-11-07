@@ -5,6 +5,7 @@ import { doc, setDoc, deleteDoc, writeBatch, serverTimestamp } from 'firebase/fi
 import Icon from '../components/Icons.jsx'
 import AgenciaTareas from './AgenciaTareas.jsx'
 import AgenciaSkills from './AgenciaSkills.jsx'
+import AgenciaProgramadas from './AgenciaProgramadas.jsx'
 import PermisosPicker from '../components/PermisosPicker.jsx'
 import CATALOGO from '../../../roles/catalogo.json'
 import { DEFAULT_DEPARTMENTS, EXAMPLE_TASK_TYPES, FIELD_TYPES, DELIVERY_FORMATS, PROVIDER_PRESETS, slugify, toLines, fromLines } from '../agencia.js'
@@ -50,12 +51,13 @@ export default function AgenciaAdmin() {
         <div>
           <span className="page-eyebrow">Administración</span>
           <h1 className="page-title">Agencia</h1>
-          <p className="page-subtitle">Tareas por departamento, tipos de tarea, modelos de IA y skills de los agentes</p>
+          <p className="page-subtitle">Tareas por departamento, rutinas programadas, tipos de tarea, modelos de IA y skills de los agentes</p>
         </div>
       </div>
 
       <div className="tab-row" style={{ marginBottom: 18 }}>
         <button className={`btn btn-sm ${tab === 'tareas' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('tareas')}>Tareas</button>
+        <button className={`btn btn-sm ${tab === 'programadas' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('programadas')}>Programadas</button>
         <button className={`btn btn-sm ${tab === 'departamentos' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('departamentos')}>Departamentos</button>
         <button className={`btn btn-sm ${tab === 'tipos' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('tipos')}>Tipos de tarea</button>
         <button className={`btn btn-sm ${tab === 'modelos' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('modelos')}>Modelos de IA</button>
@@ -64,6 +66,7 @@ export default function AgenciaAdmin() {
 
       {tab === 'tareas' && <AgenciaTareas />}
       {tab === 'skills' && <AgenciaSkills />}
+      {tab === 'programadas' && <AgenciaProgramadas />}
 
       {tab === 'departamentos' && (
         <div className="card">

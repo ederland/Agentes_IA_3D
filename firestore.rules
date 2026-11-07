@@ -31,6 +31,16 @@ service cloud.firestore {
     function mismosPermisos() {
       return request.resource.data.get('permisosExtra', []) == resource.data.get('permisosExtra', []);
     }
+    // Tarea creada por el motor desde una rutina (schedules): mismo asignado y mismos permisos que la rutina
+    function esDeRutina(data) {
+      return data.get('programadaId', '') is string && data.get('programadaId', '') != ''
+        && exists(/databases/$(database)/documents/schedules/$(data.programadaId))
+        && get(/databases/$(database)/documents/schedules/$(data.programadaId)).data.activo == true
+        && (get(/databases/$(database)/documents/schedules/$(data.programadaId)).data.plantilla.get('paraDepartamento', false) == true
+              ? (data.asignado == '' && data.get('paraDepartamento', false) == true)
+              : data.asignado == get(/databases/$(database)/documents/schedules/$(data.programadaId)).data.plantilla.asignado)
+        && get(/databases/$(database)/documents/schedules/$(data.programadaId)).data.plantilla.get('permisosExtra', []) == data.get('permisosExtra', []);
+    }
 
     // Users: lectura para autenticados; escritura propia o de admin.
     // CANDADO ANTI-FANTASMA: crear un usuario exige incluir el email real
@@ -52,7 +62,8 @@ service cloud.firestore {
       allow read: if isAuth();
       // El coordinador (vía el robot) solo puede crear tareas asignadas a agentes
       allow create: if (isActiveUser() && (isAdmin() || sinPermisosNuevos()))
-        || (isAgentBot() && isAgentTask(request.resource.data) && sinPermisosNuevos());
+        || (isAgentBot() && isAgentTask(request.resource.data) && sinPermisosNuevos())
+        || (isAgentBot() && esDeRutina(request.resource.data));
       allow update: if isAuth() && (
         isAdmin() ||
         (isEmployee() && mismosPermisos() && (
@@ -67,6 +78,19 @@ service cloud.firestore {
         (isAgentBot() && mismosPermisos() && resource.data.get('paraDepartamento', false) == true && resource.data.asignado == ''
           && resource.data.estado == 'pendiente' && isAgentTask(request.resource.data))
       );
+      allow delete: if isAdmin();
+    }
+
+    // Tareas programadas: el admin las crea y edita; el coordinador (vía el robot) solo crea rutinas para
+    // agentes y sin permisos extra; el motor solo actualiza las marcas de ejecución.
+    match /schedules/{schedId} {
+      allow read: if isActiveUser() || isAgentBot();
+      allow create: if isAdmin() || (isAgentBot()
+        && exists(/databases/$(database)/documents/agents/$(request.resource.data.plantilla.asignado))
+        && request.resource.data.plantilla.get('permisosExtra', []).size() == 0
+        && request.resource.data.plantilla.get('paraDepartamento', false) == false);
+      allow update: if isAdmin() || (isAgentBot() && request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['proximaEjecucion', 'ultimaEjecucion', 'ultimaTareaId', 'totalCreadas', 'ejecutarAhora', 'aviso', 'error']));
       allow delete: if isAdmin();
     }
 

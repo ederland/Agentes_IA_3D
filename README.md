@@ -35,6 +35,8 @@ Funciona con **Claude Code** y tu propia suscripción de Claude. Código abierto
   departamentos, tipos de tarea con plantilla de brief y checklist, y revisión entre agentes antes de que la veas tú.
 - **Tareas para un departamento**: asignas una tarea a "Marketing" en vez de a una persona; la toma quien llegue
   primero y, si nadie del equipo humano la toma, se la lleva un agente de ese departamento.
+- **Tareas programadas**: rutinas que crean una tarea en cada fecha ("cada lunes a las 8, 5 ideas de posts"),
+  desde el panel o pidiéndoselas al coordinador por chat o Telegram.
 - **Versiones y Google Drive**: cada entrega queda guardada por cliente, departamento, fecha y versión; al aprobarla
   se copia a la carpeta `Aprobados` del cliente.
 - **Entregables en PDF con vista previa**: el agente diseña en HTML A4, el motor lo convierte en PDF y tú ves cada
@@ -186,6 +188,11 @@ Las pantallas **Agentes**, **Clientes** y **Agencia** solo las ve el Super Admin
   contratados). Un agente solo recibe la ficha del cliente de su tarea; nunca ve la de otros clientes.
 - **Agencia → Tareas**: todas las tareas agrupadas por departamento, con filtro por cliente. Es la misma lista que
   la pestaña Tareas y el Pipeline, vista de otra forma.
+- **Agencia → Programadas**: rutinas diarias, semanales (con días) o mensuales (día fijo o último día), con hora y
+  zona horaria. Cada una lleva la plantilla de la tarea (a quién, cliente, tipo, brief, prioridad, días para vencer
+  y permisos). Puedes pausarlas, **Ejecutar ahora** y ver las tareas que crearon. Si la tarea anterior sigue
+  pendiente, esa vez se salta para no apilar trabajo; si el PC estuvo apagado, no se crean todas las perdidas: la
+  rutina sigue desde la siguiente fecha. El coordinador también las crea si le dices "cada…".
 - **Agencia → Departamentos**: los equipos de la agencia y quién pertenece a cada uno. Las personas se asignan en
   **Team → editar persona → Departamento**; los agentes, en **Agentes → Editar**.
 - **Agencia → Tipos de tarea**: plantilla de brief (campos obligatorios), checklist, rol que la hace, rol que la
@@ -253,7 +260,7 @@ más de 3 personas.
 |---|---|---|
 | `app/.env` | Marca y configuración pública de Firebase | No |
 | `motor/.env` | Usuario robot, Telegram, modelo alterno, opciones de las skills | **Nunca** |
-| `motor/negocio.json` | Tu negocio, tus agentes, `fuentesSkills`, `esperaDepartamentoMin` | No |
+| `motor/negocio.json` | Tu negocio, tus agentes, `fuentesSkills`, `esperaDepartamentoMin`, `zonaHoraria` (rutinas del coordinador) | No |
 | `motor/media-config.json` | Entregas: `agenciaDrive` (carpeta sincronizada con Drive), `rcloneRemote` (p. ej. `gdrive:Agencia`), `driveLocal` | No |
 | `firestore.rules` | Reglas de seguridad. En el repo lleva `__CORREO_ROBOT__`; `configurar.mjs` pone tu robot | Solo la plantilla |
 | `roles/catalogo.json` | Roles: misión, herramientas y forma de entrega | Sí |
