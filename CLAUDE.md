@@ -35,6 +35,10 @@ Proyecto de código abierto: una oficina 3D con agentes de IA para cualquier neg
   `users.departamentoId`. La toma quien llegue primero; si nadie del equipo humano la toma en
   `negocio.json → esperaDepartamentoMin` (30 min), el motor se la da a un agente del departamento.
   Agencia → Tareas muestra la misma colección `tasks` agrupada por departamento.
+- Entregables con vista previa: los roles con el grupo `salida` (`roles/catalogo.json`) pueden escribir solo en
+  `./salida/` de su tarea (`Write(./salida/**)`). Al terminar, `motor/entregables.mjs` convierte cada HTML de
+  `salida/` en PDF con Chromium (sin JavaScript, solo archivos de esa carpeta e imágenes/fuentes por https) y guarda
+  imágenes de las páginas en `previews/{taskId}`. `ReviewPanel` las muestra; `entregaDrive` guarda los links de Drive.
 - `firestore.rules` — reglas de seguridad. `tools/configurar.mjs` las personaliza.
 - `.claude/skills/instalar/` — asistente de instalación.
 

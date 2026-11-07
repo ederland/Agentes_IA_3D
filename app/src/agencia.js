@@ -11,6 +11,17 @@ export const DEFAULT_DEPARTMENTS = [
 // Tipos de tarea de ejemplo (Agencia → Tipos de tarea → "Cargar ejemplos")
 export const EXAMPLE_TASK_TYPES = [
   {
+    id: 'brochure_pdf', departamento: 'marketing', rol: 'diseno_grafico', nombre: 'Brochure o portafolio (PDF)',
+    descripcion: 'Pieza en PDF (brochure, portafolio de servicios, propuesta o flyer) con vista previa para aprobar.',
+    plantillaBrief: [
+      { campo: 'pieza', etiqueta: 'Qué pieza (brochure, portafolio, propuesta, flyer)', tipo: 'texto', requerido: true },
+      { campo: 'paginas', etiqueta: 'Cuántas páginas', tipo: 'numero', requerido: false },
+      { campo: 'contenido', etiqueta: 'Contenido o de dónde sacarlo (web, documento)', tipo: 'texto', requerido: true },
+    ],
+    checklist: ['Usa la identidad del cliente (colores, logo, tono)', 'Cada página cabe en A4 sin cortes', 'No inventa precios, cifras ni testimonios', 'Datos de contacto completos y correctos'],
+    revisor: 'revisor_calidad', formatoEntrega: 'archivos',
+  },
+  {
     id: 'ideas_posts', departamento: 'marketing', rol: 'copies_redes', nombre: 'Ideas de posts',
     descripcion: 'Ideas de publicaciones para redes con gancho y llamado a la acción.',
     plantillaBrief: [

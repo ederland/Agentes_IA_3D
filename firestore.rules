@@ -62,6 +62,13 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Vista previa de los PDF de una entrega (imágenes de cada página): la escribe solo el motor
+    match /previews/{taskId} {
+      allow read: if isActiveUser();
+      allow write: if isAgentBot();
+      allow delete: if isAdmin();
+    }
+
     // Skills desde el panel: el admin pide (buscar, revisar, instalar…) y solo el motor responde.
     // El resultado de una revisión lo escribe solo el robot: el panel no puede falsificarlo.
     match /skillOps/{opId} {

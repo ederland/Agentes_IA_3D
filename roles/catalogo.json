@@ -22,6 +22,7 @@
       "mcp__claude_ai_Google_Calendar__suggest_time", "mcp__claude_ai_Google_Calendar__create_event",
       "mcp__claude_ai_Google_Calendar__update_event"
     ],
+    "salida": ["Write(./salida/**)", "Edit(./salida/**)"],
     "entregas": [
       "mcp__agentes-media__carpeta_entregas", "mcp__agentes-media__guardar_imagen",
       "mcp__agentes-media__guardar_archivo", "mcp__agentes-media__guardar_texto"
@@ -102,7 +103,17 @@
       "modelo": {"recomendado": "claude", "requiereHerramientas": true, "nota": "Necesita herramientas: guarda archivos HTML y usa skills de diseño."},
       "descripcion": "Landing pages en HTML listas para publicar, con tus sistemas de diseño.",
       "mision": "Diseñador y desarrollador web. Construye landing pages y páginas en un solo archivo HTML (CSS y JS incluidos), responsive y rápidas. Usa las skills de diseño instaladas y el sistema de diseño del cliente. Entrega el archivo .html.",
-      "herramientas": ["web", "archivos", "skills", "drive_lectura", "entregas"],
+      "herramientas": ["web", "archivos", "skills", "drive_lectura", "entregas", "salida"],
+      "entrega": "archivos",
+      "maxTurns": 80
+    },
+    "diseno_grafico": {
+      "nombre": "Diseño gráfico y documentos",
+      "departamento": "marketing",
+      "modelo": {"recomendado": "claude", "requiereHerramientas": true, "nota": "Necesita herramientas: escribe el HTML que el motor convierte en PDF con vista previa."},
+      "descripcion": "Brochures, portafolios, propuestas, flyers y presentaciones en PDF, con vista previa para aprobar.",
+      "mision": "Diseñador gráfico y editorial. Convierte el contenido del cliente en piezas listas para imprimir o enviar: brochures, portafolios de servicios, propuestas comerciales, flyers y presentaciones. Diseña cada página en HTML A4 dentro de salida/, con la identidad del cliente, jerarquía clara y buen uso del espacio. El motor lo convierte en PDF.",
+      "herramientas": ["web", "archivos", "skills", "drive_lectura", "salida"],
       "entrega": "archivos",
       "maxTurns": 80
     },
@@ -127,7 +138,7 @@
       "modelo": {"recomendado": "claude", "requiereHerramientas": true, "nota": "Necesita herramientas: genera imágenes con Magnific."},
       "descripcion": "Posts, carruseles y creativos de anuncios con IA (requiere Magnific).",
       "mision": "Especialista en imágenes. Diseña y genera piezas visuales con IA: posts, portadas, banners y creativos de anuncios, respetando la identidad de la marca. Entrega las imágenes en JPG.",
-      "herramientas": ["web", "archivos", "skills", "drive_lectura", "entregas", "magnific_imagenes"],
+      "herramientas": ["web", "archivos", "skills", "drive_lectura", "entregas", "magnific_imagenes", "salida"],
       "entrega": "archivos",
       "maxTurns": 80,
       "presupuestoCreditos": 300,
