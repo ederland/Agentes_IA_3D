@@ -48,6 +48,13 @@ Proyecto de código abierto: una oficina 3D con agentes de IA para cualquier neg
   atrasadas acumuladas) y se salta si la anterior sigue pendiente. El coordinador crea rutinas con el bloque
   ```programar```. Reglas: el robot solo crea tareas que coinciden con su rutina (`esDeRutina`) y solo actualiza
   las marcas de ejecución.
+- Motores (`motor/motores.mjs`): `agents.modelo.proveedor` = `claude` | `antigravity` (+`nombre` = modelo de agy) |
+  `codex` | `gemini` | `api`. `runModel` prueba el principal y luego `negocio.json → respaldo` si hay límite de uso o
+  permiso denegado. `enCurso` (Map) + `negocio.json → paralelo` = cupos por motor, una tarea por agente.
+  `permiteGratis(t)`: Gemini gratis y `providers.gratis` solo con `clients.permiteModelosGratis` o sin cliente.
+  Antigravity: instrucción en `.instrucciones-agente.md`, permisos en `.agy-ajustes.json`
+  (`write_file(<tarea>/salida)`, `deny command(*)`); en `/tmp` agy escribe en cualquier lado, por eso las tareas
+  viven en `motor/trabajos/`.
 - `firestore.rules` — reglas de seguridad. `tools/configurar.mjs` las personaliza.
 - `.claude/skills/instalar/` — asistente de instalación.
 

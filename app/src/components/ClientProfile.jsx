@@ -23,6 +23,7 @@ export default function ClientProfile({ client, departments, onClose, onRenamed,
     nombre: c.nombre || '',
     activo: c.activo !== false,
     interno: !!c.interno,
+    permiteModelosGratis: c.permiteModelosGratis === true,
     departamentos: c.departamentos || [],
     descripcion: c.negocio?.descripcion || '',
     servicios: toLines(c.negocio?.servicios),
@@ -61,7 +62,7 @@ export default function ClientProfile({ client, departments, onClose, onRenamed,
     const folderId = (form.driveFolderId.match(/folders\/([\w-]+)/)?.[1] || form.driveFolderId).trim()
     const data = {
       ...base, ...c,
-      nombre, slug: slugify(nombre), activo: form.activo, interno: form.interno,
+      nombre, slug: slugify(nombre), activo: form.activo, interno: form.interno, permiteModelosGratis: form.permiteModelosGratis,
       departamentos: form.departamentos,
       negocio: { descripcion: form.descripcion.trim(), servicios: fromLines(form.servicios), zona: form.zona.trim(), publico: form.publico.trim() },
       marca: {
@@ -131,6 +132,11 @@ export default function ClientProfile({ client, departments, onClose, onRenamed,
                 </label>
                 <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
                   <input type="checkbox" checked={form.interno} onChange={e => set('interno', e.target.checked)} /> Proyecto propio (interno)
+                </label>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13 }}
+                  title="Los planes gratis (Gemini con cuenta personal, claves gratis) pueden usar lo que reciben para entrenar sus modelos">
+                  <input type="checkbox" checked={form.permiteModelosGratis} onChange={e => set('permiteModelosGratis', e.target.checked)} />
+                  <span>Permite modelos gratis <span style={{ fontSize: 11, color: 'var(--text-3)' }}>(pueden entrenar con los datos)</span></span>
                 </label>
               </div>
             </div>

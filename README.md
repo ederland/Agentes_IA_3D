@@ -42,8 +42,10 @@ Funciona con **Claude Code** y tu propia suscripción de Claude. Código abierto
 - **Entregables en PDF con vista previa**: el agente diseña en HTML A4, el motor lo convierte en PDF y tú ves cada
   página en miniatura antes de aprobar (brochures, portafolios, propuestas, flyers, presentaciones).
 - **Buscador de skills**: busca, revisa e instala skills de Claude para tus agentes desde el panel.
-- **Modelos de IA por agente**: Claude Code por defecto, u otros modelos con API compatible con OpenAI
-  (Gemini, OpenRouter, Ollama…) para los agentes que solo escriben texto.
+- **Varios motores de IA trabajando en paralelo**: Claude Code, **Antigravity** (Google AI Pro/Ultra, con modelos
+  Gemini, Claude y GPT-OSS), **Codex** (cuenta de ChatGPT) y **Gemini CLI** (clave de API) trabajan con herramientas;
+  además, modelos de solo texto con API compatible con OpenAI (Groq, Cerebras, OpenRouter, Gemini, Ollama…). Si uno
+  llega a su límite de uso, la tarea pasa sola al siguiente.
 - **Chat con cada agente y chat de grupo**: los agentes te preguntan lo que les falta y colaboran con `@menciones`.
 - **Asistente coordinador por Telegram** (opcional): háblale por texto o nota de voz, reparte tareas y te avisa
   cuando un agente termina o necesita información.
@@ -74,6 +76,9 @@ Funciona con **Claude Code** y tu propia suscripción de Claude. Código abierto
 | Chromium o Chrome | Crear los PDF. El motor usa el que ya trae (Playwright) o el de tu sistema. En Linux/WSL necesita `sudo apt-get install -y libnss3 libnspr4 libasound2t64`. |
 | [Magnific](https://www.magnific.com) (de pago) | Rol de imágenes con IA. |
 | Claves de ElevenLabs, HeyGen o Gemini | Voces y avatares en los videos (skills de HyperFrames). |
+| Google AI Pro o Ultra + [Antigravity CLI](https://antigravity.google) | Motor Antigravity: `curl -fsSL https://antigravity.google/cli/install.sh \| bash` y luego `agy` para iniciar sesión. |
+| Cuenta de ChatGPT | Motor Codex: `cd motor && npx codex login`. |
+| Clave de Google AI Studio | Motor Gemini CLI: `GEMINI_API_KEY=…` en `motor/.env`. Desde junio de 2026 Gemini CLI ya no acepta la cuenta gratis de Google. |
 
 ## Instalación
 
@@ -201,6 +206,28 @@ Las pantallas **Agentes**, **Clientes** y **Agencia** solo las ve el Super Admin
   **solo la lee el motor**: el panel no puede volver a mostrarla. Los agentes que usan herramientas (web, archivos,
   video) siempre van con Claude Code.
 - **Agencia → Skills**: el buscador de skills (abajo).
+
+### Motores de IA
+
+Cada agente elige su motor en **Agentes → Editar → Modelo de IA**; **Agencia → Modelos de IA** muestra cuáles tienen
+sesión en el PC del motor.
+
+| Motor | Con qué entra | Herramientas | Notas |
+|---|---|---|---|
+| Claude Code | Tu suscripción de Claude | Todas (web, archivos, skills, video, Gmail, Drive…) | Único motor para roles de video, imágenes, correo y Drive. |
+| Antigravity | Google AI Pro/Ultra (`agy`) | Web, leer y escribir en `salida/` | Elige el modelo (Gemini, Claude, GPT-OSS) en cada agente. Sin terminal. |
+| Codex | Cuenta de ChatGPT | Escribe en la carpeta de la tarea (sandbox) | |
+| Gemini CLI | `GEMINI_API_KEY` | Escribe en la carpeta de la tarea | Clave sin facturación = plan gratis. |
+| API (solo texto) | Clave en Modelos de IA | Ninguna | Para textos con el brief completo. |
+
+- **En paralelo**: una tarea por agente y, por defecto, una por motor (dos por API): `negocio.json → paralelo`, por
+  ejemplo `{ "claude": 1, "antigravity": 2, "api": 3 }`. Más paralelo gasta los límites de cada plan más rápido.
+- **Respaldo**: si un motor responde "límite de uso" o se detiene por un permiso, la tarea pasa al siguiente
+  conectado que sirva para ella (`negocio.json → respaldo`, por defecto `["claude", "antigravity", "codex", "gemini"]`).
+  La tarea guarda qué motor la hizo.
+- **Privacidad**: en la ficha de cada cliente, **Permite modelos gratis** (desmarcado por defecto). Gemini CLI con
+  clave gratis y los proveedores marcados "Plan gratis" solo reciben tareas internas o de clientes con ese permiso.
+- Codex, Gemini y Antigravity no leen `motor/CLAUDE.md`: el motor les incluye esas reglas en cada tarea.
 
 ### Skills de los agentes
 

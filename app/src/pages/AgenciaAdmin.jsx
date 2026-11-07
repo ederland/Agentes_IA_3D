@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useApp } from '../App.jsx'
 import { db } from '../firebase.js'
-import { doc, setDoc, deleteDoc, writeBatch, serverTimestamp } from 'firebase/firestore'
+import { doc, setDoc, deleteDoc, writeBatch, serverTimestamp, onSnapshot } from 'firebase/firestore'
 import Icon from '../components/Icons.jsx'
 import AgenciaTareas from './AgenciaTareas.jsx'
 import AgenciaSkills from './AgenciaSkills.jsx'
@@ -120,6 +120,7 @@ export default function AgenciaAdmin() {
         </div>
       )}
 
+      {tab === 'modelos' && <MotoresCli />}
       {tab === 'modelos' && (
         <div className="card">
           <p style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 0 }}>
@@ -347,7 +348,7 @@ function TypeModal({ type, departments, onClose, showToast }) {
 function ProviderModal({ prov, onClose, showToast }) {
   const [form, setForm] = useState({
     nombre: prov.nombre || '', baseUrl: prov.baseUrl || '',
-    modelos: toLines(prov.modelos), apiKey: '', activo: prov.activo !== false,
+    modelos: toLines(prov.modelos), apiKey: '', activo: prov.activo !== false, gratis: !!prov.gratis,
   })
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const disponibles = (prov.modelosDisponibles || []).filter(m => !fromLines(form.modelos).includes(m))
@@ -359,7 +360,7 @@ function ProviderModal({ prov, onClose, showToast }) {
       if (form.apiKey.trim()) await setDoc(doc(db, 'providerSecrets', id), { apiKey: form.apiKey.trim(), updatedAt: serverTimestamp() })
       await setDoc(doc(db, 'providers', id), {
         nombre: form.nombre.trim(), baseUrl: form.baseUrl.trim().replace(/\/+$/, ''), modelos: fromLines(form.modelos),
-        activo: form.activo, ayuda: prov.ayuda || '',
+        activo: form.activo, gratis: form.gratis, ayuda: prov.ayuda || '',
         tieneClave: !!(form.apiKey.trim() || prov.tieneClave),
         ...(form.apiKey.trim() ? { prueba: 'pendiente' } : {}),
       }, { merge: true })
@@ -416,12 +417,53 @@ function ProviderModal({ prov, onClose, showToast }) {
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
             <input type="checkbox" checked={form.activo} onChange={e => set('activo', e.target.checked)} /> Activo
           </label>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+            <input type="checkbox" checked={form.gratis} onChange={e => set('gratis', e.target.checked)} /> Plan gratis (puede entrenar con los datos: solo recibe tareas internas o de clientes con permiso)
+          </label>
         </div>
         <div className="modal-footer">
           {prov.id && !prov.nuevo && <button className="btn btn-ghost" style={{ color: 'var(--danger)', marginRight: 'auto' }} onClick={remove}>Quitar</button>}
           <button className="btn btn-secondary" onClick={onClose}>Cancelar</button>
           <button className="btn btn-primary" onClick={save}>Guardar</button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// Codex (ChatGPT) y Gemini CLI: agentes con herramientas, como Claude Code. El motor publica si tienen sesión.
+function MotoresCli() {
+  const [w, setW] = useState(null)
+  useEffect(() => onSnapshot(doc(db, 'config', 'agentWorker'), d => setW(d.data() || null), () => {}), [])
+  const m = w?.motores || {}
+  const fila = (id, nombre, como, extra) => {
+    const e = m[id]
+    return (
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '10px 14px', background: 'var(--bg-2)', borderRadius: 10, flexWrap: 'wrap' }}>
+        <span style={{ width: 10, height: 10, borderRadius: '50%', background: e?.conectado ? 'var(--success)' : 'var(--danger)', flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <strong style={{ fontSize: 14 }}>{nombre}</strong>
+          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{e ? e.detalle : 'Enciende el motor para ver el estado'}</div>
+          {!e?.conectado && <div style={{ fontSize: 12, marginTop: 4 }}>Para conectarlo, en una terminal de tu PC: <code>{como}</code></div>}
+          {extra && <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>{extra}</div>}
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <p style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 0 }}>
+        <strong>Motores con herramientas</strong>: como Claude Code, escriben archivos en la carpeta de la tarea (y el motor crea el PDF).
+        Elige el motor de cada agente en <em>Agentes → Editar → Modelo de IA</em>. Si un motor llega a su límite de uso, la tarea pasa sola
+        al siguiente (<code>negocio.json → respaldo</code>), y en paralelo trabaja una tarea por motor (<code>negocio.json → paralelo</code>).
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {fila('antigravity', 'Antigravity · Google AI Pro / Ultra', 'curl -fsSL https://antigravity.google/cli/install.sh | bash  y luego  agy',
+          'Reemplazo de Gemini CLI. Usa tu plan de Google y trae modelos Gemini, Claude y GPT-OSS; elige el modelo en cada agente. Solo escribe en salida/ y no usa la terminal. Al instalarlo, desmarca la casilla que deja a Google usar tus interacciones.')}
+        {fila('codex', 'Codex · cuenta de ChatGPT', 'cd motor && npx codex login',
+          'Usa tu plan de ChatGPT. Trabaja en un sandbox que solo escribe en la carpeta de la tarea. Revisa en ChatGPT → Configuración → Controles de datos si quieres que no entrene con tus conversaciones.')}
+        {fila('gemini', 'Gemini CLI · clave de API', 'GEMINI_API_KEY=… en motor/.env y reinicia el motor',
+          'Desde junio de 2026 Gemini CLI ya no acepta el plan gratis con cuenta de Google (Google lo pasó a Antigravity CLI). Funciona con una clave de aistudio.google.com. Sin facturación cuenta como plan gratis: solo recibe tareas internas o de clientes con "Permite modelos gratis" (si la clave es de pago, pon geminiDePago: true en negocio.json).')}
       </div>
     </div>
   )

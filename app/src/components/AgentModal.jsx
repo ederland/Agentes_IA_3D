@@ -45,8 +45,9 @@ export default function AgentModal({ agent, nextOrder, onClose, showToast, userE
   const { departments, clientDocs, providers } = useApp()
   // Skills instaladas en el PC del motor (las publica el motor en config/agentWorker)
   const [skillsPC, setSkillsPC] = useState([])
+  const [motoresPC, setMotoresPC] = useState({})
   useEffect(() => {
-    getDoc(doc(db, 'config', 'agentWorker')).then(s => setSkillsPC(s.data()?.skills || [])).catch(() => {})
+    getDoc(doc(db, 'config', 'agentWorker')).then(s => { setSkillsPC(s.data()?.skills || []); setMotoresPC(s.data()?.motores || {}) }).catch(() => {})
   }, [])
   const [form, setForm] = useState({
     departamentoId: agent?.departamentoId || '',
@@ -55,7 +56,7 @@ export default function AgentModal({ agent, nextOrder, onClose, showToast, userE
     maxTurnos: agent?.presupuesto?.maxTurnos || '',
     todosClientes: !Array.isArray(agent?.clientesPermitidos),
     clientesPermitidos: Array.isArray(agent?.clientesPermitidos) ? agent.clientesPermitidos : [],
-    proveedor: agent?.modelo?.proveedor === 'api' ? agent.modelo.proveedorId : 'claude',
+    proveedor: agent?.modelo?.proveedor === 'api' ? agent.modelo.proveedorId : ['codex', 'gemini', 'antigravity'].includes(agent?.modelo?.proveedor) ? agent.modelo.proveedor : 'claude',
     modeloNombre: agent?.modelo?.nombre || '',
     skills: agent?.skills || [],
     aprendizajes: agent?.aprendizajes || [],
@@ -99,6 +100,11 @@ export default function AgentModal({ agent, nextOrder, onClose, showToast, userE
   const rolModelo = CATALOGO.roles[form.rol]?.modelo
   const requiereHerramientas = !!rolModelo?.requiereHerramientas
   const provSel = providers.find(p => p.id === form.proveedor)
+  // Roles con herramientas de servidores MCP (video, imágenes, Gmail, Drive…) solo funcionan con Claude Code
+  const GRUPOS_MCP = ['entregas', 'editor_video', 'magnific_imagenes', 'gmail', 'calendario', 'drive_lectura', 'drive_crear']
+  const soloClaude = (CATALOGO.roles[form.rol]?.herramientas || []).some(g => GRUPOS_MCP.includes(g) && g !== 'drive_lectura')
+  const esCli = ['codex', 'gemini', 'antigravity'].includes(form.proveedor)
+  const motorSel = motoresPC[form.proveedor]
 
   const handleSave = async () => {
     if (!form.name.trim() || !form.role.trim()) { showToast('Nombre y especialidad son obligatorios', 'error'); return }
@@ -114,8 +120,10 @@ export default function AgentModal({ agent, nextOrder, onClose, showToast, userE
       ejemplos: form.ejemplos.filter(e => e.texto?.trim()).map(e => ({ titulo: (e.titulo || '').trim(), texto: e.texto.trim() })),
       presupuesto: { maxTurnos: Number(form.maxTurnos) || null },
       clientesPermitidos: form.todosClientes ? 'todos' : form.clientesPermitidos,
-      modelo: form.proveedor === 'claude' || requiereHerramientas
+      modelo: form.proveedor === 'claude' || (esCli && soloClaude) || (!esCli && requiereHerramientas)
         ? { proveedor: 'claude' }
+        : form.proveedor === 'antigravity' ? { proveedor: 'antigravity', nombre: form.modeloNombre.trim() }
+        : esCli ? { proveedor: form.proveedor }
         : { proveedor: 'api', proveedorId: form.proveedor, nombre: form.modeloNombre.trim() },
       skills: form.skills,
       aprendizajes: form.aprendizajes,
@@ -252,11 +260,27 @@ export default function AgentModal({ agent, nextOrder, onClose, showToast, userE
               </span>
             )}
             <div className="form-row">
-              <select className="form-select" value={requiereHerramientas ? 'claude' : form.proveedor} disabled={requiereHerramientas}
+              <select className="form-select" value={soloClaude ? 'claude' : form.proveedor} disabled={soloClaude}
                 onChange={e => setForm(f => ({ ...f, proveedor: e.target.value, modeloNombre: providers.find(p => p.id === e.target.value)?.modelos?.[0] || '' }))}>
-                <option value="claude">Claude Code (con herramientas)</option>
-                {providers.filter(p => p.activo !== false).map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                <optgroup label="Agentes con herramientas">
+                  <option value="claude">Claude Code</option>
+                  <option value="antigravity">Antigravity · Google AI Pro</option>
+                  <option value="codex">Codex · cuenta de ChatGPT</option>
+                  <option value="gemini">Gemini CLI · clave de API</option>
+                </optgroup>
+                {!requiereHerramientas && providers.some(p => p.activo !== false) && (
+                  <optgroup label="Solo texto (API)">
+                    {providers.filter(p => p.activo !== false).map(p => <option key={p.id} value={p.id}>{p.nombre}{p.gratis ? ' · gratis' : ''}</option>)}
+                  </optgroup>
+                )}
               </select>
+              {!soloClaude && form.proveedor === 'antigravity' && (
+                <select className="form-select" value={form.modeloNombre} onChange={e => setForm(f => ({ ...f, modeloNombre: e.target.value }))}>
+                  <option value="">Modelo por defecto</option>
+                  {(motoresPC.antigravity?.modelos || []).map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                  {form.modeloNombre && !(motoresPC.antigravity?.modelos || []).some(m => m.id === form.modeloNombre) && <option value={form.modeloNombre}>{form.modeloNombre}</option>}
+                </select>
+              )}
               {!requiereHerramientas && provSel && (
                 <select className="form-select" value={form.modeloNombre} onChange={e => setForm(f => ({ ...f, modeloNombre: e.target.value }))}>
                   {!(provSel.modelos || []).includes(form.modeloNombre) && <option value={form.modeloNombre}>{form.modeloNombre || '— Elige un modelo —'}</option>}
@@ -264,6 +288,16 @@ export default function AgentModal({ agent, nextOrder, onClose, showToast, userE
                 </select>
               )}
             </div>
+            {soloClaude && (
+              <span style={{ fontSize: 11, color: 'var(--text-3)' }}>Este rol usa herramientas que solo tiene Claude Code (video, imágenes, correo o Drive).</span>
+            )}
+            {!soloClaude && esCli && (
+              <span style={{ fontSize: 11, color: motorSel?.conectado ? 'var(--success)' : 'var(--danger)' }}>
+                {motorSel ? (motorSel.conectado ? `Conectado en el PC del motor · ${motorSel.detalle}` : motorSel.detalle) : 'Enciende el motor para ver si tiene sesión.'}
+                {form.proveedor === 'gemini' && ' · Plan gratis: solo recibe tareas internas o de clientes con "permite modelos gratis".'}
+                {' '}Si se acaba su cuota, la tarea pasa sola al siguiente motor disponible.
+              </span>
+            )}
             {!requiereHerramientas && providers.length === 0 && (
               <span style={{ fontSize: 11, color: 'var(--text-3)' }}>Para usar Gemini, Groq, DeepSeek u otros, agrégalos en Agencia → Modelos de IA.</span>
             )}
