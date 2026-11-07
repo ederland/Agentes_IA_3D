@@ -5,6 +5,7 @@ import { doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore'
 import { logWork } from '../utils/worklog.js'
 import { dueInfo, duplicateTask, wipLimitReached, WIP_LIMIT } from './KanbanView.jsx'
 import Icon from '../components/Icons.jsx'
+import { esDeDepartamento } from '../agencia.js'
 
 function fmtDate(ts) {
   if (!ts) return '—'
@@ -21,8 +22,8 @@ function fmtDuration(seconds) {
 }
 
 export default function TasksView() {
-  const { tasks, users, agents, clients: CLIENTES, isAdmin, user, userProfile, showToast, openEditTask, openNewTask } = useApp()
-  const [filters, setFilters] = useState({ member: '', status: '', client: '', month: '', priority: '' })
+  const { tasks, users, agents, departments, clients: CLIENTES, isAdmin, user, userProfile, showToast, openEditTask, openNewTask } = useApp()
+  const [filters, setFilters] = useState({ member: '', status: '', client: '', month: '', priority: '', dept: '' })
   const [sortBy, setSortBy] = useState('createdAt')
   const [sortDir, setSortDir] = useState('desc')
   // Empleados arrancan viendo solo sus tareas
@@ -31,12 +32,25 @@ export default function TasksView() {
   // Las tareas pueden estar asignadas a un empleado o a un agente de IA
   const getUserById = (uid) => users.find(u => u.uid === uid)
     || ((a) => a && { uid: a.id, name: `${a.name} (agente)`, color: a.look?.torso, photo: a.photo || '' })(agents.find(a => a.id === uid))
+  // Tarea de departamento sin tomar: se muestra el departamento en lugar de "Sin asignar"
+  const getAssignee = (task) => {
+    if (esDeDepartamento(task)) {
+      const d = departments.find(x => x.id === task.departamentoId)
+      return { uid: '', name: `${d?.nombre || 'Departamento'} (por tomar)`, color: d?.color || 'var(--purple)', photo: '' }
+    }
+    return getUserById(task.asignado)
+  }
 
   // Apply filters
   const filtered = useMemo(() => {
-    const base = filterMine ? tasks.filter(t => t.asignado === user.uid) : tasks
+    // "Mis tareas" incluye las de mi departamento que nadie ha tomado
+    const base = filterMine
+      ? tasks.filter(t => t.asignado === user.uid || (esDeDepartamento(t) && t.departamentoId && t.departamentoId === userProfile?.departamentoId))
+      : tasks
     return base.filter(t => {
       if (filters.member && t.asignado !== filters.member) return false
+      if (filters.dept === '_sin_tomar') { if (!esDeDepartamento(t)) return false }
+      else if (filters.dept && t.departamentoId !== filters.dept) return false
       if (filters.status && t.estado !== filters.status) return false
       if (filters.client && t.cliente !== filters.client) return false
       if (filters.priority && t.prioridad !== filters.priority) return false
@@ -54,10 +68,10 @@ export default function TasksView() {
       if (av > bv) return sortDir === 'asc' ? 1 : -1
       return 0
     })
-  }, [tasks, filters, sortBy, sortDir, filterMine])
+  }, [tasks, filters, sortBy, sortDir, filterMine, userProfile])
 
   const setFilter = (key, val) => setFilters(f => ({ ...f, [key]: val }))
-  const clearFilters = () => setFilters({ member: '', status: '', client: '', month: '', priority: '' })
+  const clearFilters = () => setFilters({ member: '', status: '', client: '', month: '', priority: '', dept: '' })
 
   const handleSort = (col) => {
     if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -132,7 +146,7 @@ export default function TasksView() {
   const exportCSV = () => {
     const headers = ['Tarea','Descripción','Asignado','Cliente','Prioridad','Estado','Inicio','Entrega','Duración (hrs)','Creado por']
     const rows = filtered.map(t => {
-      const u = getUserById(t.asignado)
+      const u = getAssignee(t)
       const dur = t.totalTimeSeconds ? (t.totalTimeSeconds / 3600).toFixed(2) : ''
       return [
         t.tarea, t.descripcion, u?.name || t.asignado, t.cliente,
@@ -197,8 +211,23 @@ export default function TasksView() {
           <select className="form-select" value={filters.member} onChange={e => setFilter('member', e.target.value)}>
             <option value="">Todos</option>
             {users.map(u => <option key={u.uid} value={u.uid}>{u.name}</option>)}
+            {agents.length > 0 && (
+              <optgroup label="Agentes de IA">
+                {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </optgroup>
+            )}
           </select>
         </div>
+        {departments.length > 0 && (
+          <div className="filter-group">
+            <span className="filter-label">Departamento</span>
+            <select className="form-select" value={filters.dept} onChange={e => setFilter('dept', e.target.value)}>
+              <option value="">Todos</option>
+              <option value="_sin_tomar">Por tomar (de departamento)</option>
+              {departments.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+            </select>
+          </div>
+        )}
         <div className="filter-group">
           <span className="filter-label">Estado</span>
           <select className="form-select" value={filters.status} onChange={e => setFilter('status', e.target.value)}>
@@ -269,7 +298,7 @@ export default function TasksView() {
             </thead>
             <tbody>
               {filtered.map(task => {
-                const assignedUser = getUserById(task.asignado)
+                const assignedUser = getAssignee(task)
                 const canEdit = isAdmin || (task.asignado === user.uid)
                 return (
                   <tr key={task.id} style={{ cursor: 'pointer' }} onClick={() => openEditTask(task)}>

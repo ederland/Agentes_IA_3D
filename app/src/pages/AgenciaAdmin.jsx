@@ -3,13 +3,15 @@ import { useApp } from '../App.jsx'
 import { db } from '../firebase.js'
 import { doc, setDoc, deleteDoc, writeBatch, serverTimestamp } from 'firebase/firestore'
 import Icon from '../components/Icons.jsx'
+import AgenciaTareas from './AgenciaTareas.jsx'
+import AgenciaSkills from './AgenciaSkills.jsx'
 import CATALOGO from '../../../roles/catalogo.json'
 import { DEFAULT_DEPARTMENTS, EXAMPLE_TASK_TYPES, FIELD_TYPES, DELIVERY_FORMATS, PROVIDER_PRESETS, slugify, toLines, fromLines } from '../agencia.js'
 
 // Agencia: departamentos y tipos de tarea (plantillas de brief con su checklist y su revisor)
 export default function AgenciaAdmin() {
-  const { departments, taskTypes, agents, providers, showToast } = useApp()
-  const [tab, setTab] = useState('departamentos')
+  const { departments, taskTypes, agents, providers, users, showToast } = useApp()
+  const [tab, setTab] = useState('tareas')
   const [editDept, setEditDept] = useState(null)
   const [editType, setEditType] = useState(null)
   const [editProv, setEditProv] = useState(null)
@@ -47,15 +49,20 @@ export default function AgenciaAdmin() {
         <div>
           <span className="page-eyebrow">Administración</span>
           <h1 className="page-title">Agencia</h1>
-          <p className="page-subtitle">Departamentos y tipos de tarea: definen qué brief se pide, cómo se revisa y quién revisa</p>
+          <p className="page-subtitle">Tareas por departamento, tipos de tarea, modelos de IA y skills de los agentes</p>
         </div>
       </div>
 
       <div className="tab-row" style={{ marginBottom: 18 }}>
+        <button className={`btn btn-sm ${tab === 'tareas' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('tareas')}>Tareas</button>
         <button className={`btn btn-sm ${tab === 'departamentos' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('departamentos')}>Departamentos</button>
         <button className={`btn btn-sm ${tab === 'tipos' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('tipos')}>Tipos de tarea</button>
         <button className={`btn btn-sm ${tab === 'modelos' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('modelos')}>Modelos de IA</button>
+        <button className={`btn btn-sm ${tab === 'skills' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('skills')}>Skills</button>
       </div>
+
+      {tab === 'tareas' && <AgenciaTareas />}
+      {tab === 'skills' && <AgenciaSkills />}
 
       {tab === 'departamentos' && (
         <div className="card">
@@ -74,7 +81,8 @@ export default function AgenciaAdmin() {
                   <strong style={{ fontSize: 14 }}>{d.nombre}</strong>
                   <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{d.descripcion}</div>
                   <div style={{ fontSize: 11.5, color: 'var(--text-2)', marginTop: 3 }}>
-                    Agentes: {agentsOf(d.id).map(a => a.name).join(', ') || 'ninguno'}
+                    Personas: {users.filter(u => u.departamentoId === d.id && u.role !== 'pending').map(u => u.name).join(', ') || 'ninguna (asígnalas en Team → editar persona)'}
+                    {' · '}Agentes: {agentsOf(d.id).map(a => a.name).join(', ') || 'ninguno'}
                   </div>
                 </div>
                 <button className="btn btn-secondary btn-sm" onClick={() => setEditDept(d)}>Editar</button>

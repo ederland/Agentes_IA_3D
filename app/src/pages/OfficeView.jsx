@@ -370,7 +370,11 @@ export default function OfficeView() {
                         <Icon name="send" size={12} /> Chatear
                       </button>
                     )}
-                    {selected.ref.active && selected.status !== 'cafe' && (
+                    {selected.ref.active && (selected.status === 'cafe' || selected.status === 'bano') ? (
+                      <button className="btn btn-primary btn-sm" onClick={() => setBreak(selected, null)}>
+                        <Icon name="play" size={12} /> Volver a trabajar
+                      </button>
+                    ) : selected.ref.active && (
                       <button className="btn btn-secondary btn-sm" onClick={() => setBreak(selected, 'cafe')}>
                         <Icon name="coffee" size={12} /> Café
                       </button>

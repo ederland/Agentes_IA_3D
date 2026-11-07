@@ -26,3 +26,4 @@ motor/.agents/
 .DS_Store
 Thumbs.db
 *.log
+motor/.skills-cuarentena/

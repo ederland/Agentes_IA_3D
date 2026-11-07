@@ -4,6 +4,7 @@ import { db } from '../firebase.js'
 import { doc, updateDoc, deleteDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore'
 import { logWork } from '../utils/worklog.js'
 import Icon from '../components/Icons.jsx'
+import { esDeDepartamento } from '../agencia.js'
 
 const COLUMNS = [
   { id: 'pendiente',   label: 'Pendiente',    icon: 'hourglass', color: 'var(--text-3)' },
@@ -157,7 +158,7 @@ export function dueInfo(task) {
 }
 
 export default function KanbanView() {
-  const { tasks, users, agents, isAdmin, user, userProfile, showToast, openEditTask, sendNotification } = useApp()
+  const { tasks, users, agents, departments, isAdmin, user, userProfile, showToast, openEditTask, sendNotification } = useApp()
   const [dragOver, setDragOver] = useState(null)
   const [expandedId, setExpandedId] = useState(null)
   // Filtro por miembro: '' = todo el equipo. Empleados arrancan viendo lo suyo.
@@ -173,6 +174,14 @@ export default function KanbanView() {
   // Las tareas pueden estar asignadas a un empleado o a un agente de IA
   const getUserById = (uid) => users.find(u => u.uid === uid)
     || ((a) => a && { uid: a.id, name: `${a.name} (agente)`, color: a.look?.torso, photo: a.photo || '' })(agents.find(a => a.id === uid))
+  // Tarea de departamento sin tomar: se muestra el departamento en lugar de "Sin asignar"
+  const getAssignee = (task) => {
+    if (esDeDepartamento(task)) {
+      const d = departments.find(x => x.id === task.departamentoId)
+      return { uid: '', name: `${d?.nombre || 'Departamento'} (por tomar)`, color: d?.color || 'var(--purple)', photo: '' }
+    }
+    return getUserById(task.asignado)
+  }
   const visibleTasks = tasks
     .filter(t => !filterUid || t.asignado === filterUid)
     .filter(t => inPeriod(t, period, monthVal, fromDate, toDate))
@@ -440,7 +449,7 @@ export default function KanbanView() {
                   <CompactCard
                     key={task.id}
                     task={task}
-                    assignedUser={getUserById(task.asignado)}
+                    assignedUser={getAssignee(task)}
                     draggable={canMoveTask(task)}
                     onDragStart={handleDragStart}
                     onEdit={openEditTask}
@@ -452,7 +461,7 @@ export default function KanbanView() {
                   <KanbanCard
                     key={task.id}
                     task={task}
-                    assignedUser={getUserById(task.asignado)}
+                    assignedUser={getAssignee(task)}
                     draggable={canMoveTask(task)}
                     canEdit={isAdmin || task.asignado === user.uid}
                     canDelete={isAdmin}
