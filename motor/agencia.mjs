@@ -52,3 +52,9 @@ export function parseReview(text) {
     return { estado, notas: lista(j.notas).map(String).slice(0, 15) }
   } catch { return null }
 }
+
+// Grupos de permisos que suma una tarea: los de su tipo de tarea y los que un admin marcó en ella.
+// Solo se aceptan nombres de grupos del catálogo (nunca herramientas sueltas como Bash).
+export function permisosDeTarea(tipo, t, grupos = {}) {
+  return [...new Set([...lista(tipo?.herramientas), ...lista(t?.permisosExtra)])].filter(g => Object.hasOwn(grupos, g))
+}

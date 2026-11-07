@@ -29,7 +29,8 @@ Funciona con **Claude Code** y tu propia suscripción de Claude. Código abierto
   café. El coordinador camina hasta cada agente para entregarle las tareas. Gira la vista con `Q` / `E`.
 - **Pipeline de tareas** (Kanban): pendiente → en progreso → espera aprobación → correcciones → completada, con
   cronómetro, prioridades, clientes, departamentos y reportes. La pestaña **Tareas** muestra la misma lista en tabla.
-- **Agentes con roles**: elige del catálogo o crea los tuyos. Cada rol define qué herramientas puede usar.
+- **Agentes con roles y permisos por tarea**: elige del catálogo o crea los tuyos. Cada rol define qué herramientas
+  puede usar, y un tipo de tarea o una tarea puntual pueden sumarle permisos (por ejemplo, crear un PDF).
 - **Agencia multi-cliente**: ficha de cada cliente (negocio, marca, objetivos, activos, alcance y aprendizajes),
   departamentos, tipos de tarea con plantilla de brief y checklist, y revisión entre agentes antes de que la veas tú.
 - **Tareas para un departamento**: asignas una tarea a "Marketing" en vez de a una persona; la toma quien llegue
@@ -146,6 +147,9 @@ Otros comandos dentro de `motor/`:
      ("Asignármela" en el Pipeline o "Tomarla" en Agencia → Tareas). Si en 30 minutos nadie del equipo humano la
      toma, el motor se la da a un agente de ese departamento (el que tenga el rol del tipo de tarea o el menos
      ocupado). Si el departamento no tiene personas, se la da de inmediato.
+   - **Permisos del agente para esta tarea** (solo admin): suma permisos que su rol no trae, solo para esa tarea.
+     Por ejemplo, "Crear archivos y PDF" para que el agente de SEO entregue un brochure. Los que tocan tus datos
+     (Gmail, calendario) salen en rojo. Nunca se ofrece la terminal (Bash).
 3. **Revisión entre agentes**: si el tipo de tarea tiene un rol revisor, otro agente revisa la entrega contra el
    checklist y la corrige una vez antes de mostrártela.
 4. **Espera aprobación**: abres la tarea. Si el agente entregó un PDF, ves la vista previa de cada página (clic para
@@ -185,7 +189,7 @@ Las pantallas **Agentes**, **Clientes** y **Agencia** solo las ve el Super Admin
 - **Agencia → Departamentos**: los equipos de la agencia y quién pertenece a cada uno. Las personas se asignan en
   **Team → editar persona → Departamento**; los agentes, en **Agentes → Editar**.
 - **Agencia → Tipos de tarea**: plantilla de brief (campos obligatorios), checklist, rol que la hace, rol que la
-  revisa y formato de entrega.
+  revisa, formato de entrega y **permisos extra** que recibe cualquier agente que haga ese tipo de tarea.
 - **Agencia → Modelos de IA**: agrega proveedores compatibles con OpenAI. La clave se guarda en tu Firebase y
   **solo la lee el motor**: el panel no puede volver a mostrarla. Los agentes que usan herramientas (web, archivos,
   video) siempre van con Claude Code.

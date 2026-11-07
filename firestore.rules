@@ -24,6 +24,13 @@ service cloud.firestore {
     function isAgentTask(data) {
       return exists(/databases/$(database)/documents/agents/$(data.asignado));
     }
+    // Permisos extra del agente en una tarea: solo un admin los pone o los cambia
+    function sinPermisosNuevos() {
+      return request.resource.data.get('permisosExtra', []).size() == 0;
+    }
+    function mismosPermisos() {
+      return request.resource.data.get('permisosExtra', []) == resource.data.get('permisosExtra', []);
+    }
 
     // Users: lectura para autenticados; escritura propia o de admin.
     // CANDADO ANTI-FANTASMA: crear un usuario exige incluir el email real
@@ -44,19 +51,20 @@ service cloud.firestore {
     match /tasks/{taskId} {
       allow read: if isAuth();
       // El coordinador (vía el robot) solo puede crear tareas asignadas a agentes
-      allow create: if isActiveUser() || (isAgentBot() && isAgentTask(request.resource.data));
+      allow create: if (isActiveUser() && (isAdmin() || sinPermisosNuevos()))
+        || (isAgentBot() && isAgentTask(request.resource.data) && sinPermisosNuevos());
       allow update: if isAuth() && (
         isAdmin() ||
-        (isEmployee() && (
+        (isEmployee() && mismosPermisos() && (
           resource.data.asignado == request.auth.uid ||
           resource.data.createdBy == request.auth.token.email ||
           // Auto-asignarse: un empleado puede reclamar una tarea PENDIENTE para si mismo
           (resource.data.estado == 'pendiente' && request.resource.data.asignado == request.auth.uid)
         )) ||
         // El robot solo toca tareas de agentes y no puede reasignarlas
-        (isAgentBot() && isAgentTask(resource.data) && request.resource.data.asignado == resource.data.asignado) ||
+        (isAgentBot() && mismosPermisos() && isAgentTask(resource.data) && request.resource.data.asignado == resource.data.asignado) ||
         // ...salvo una tarea de departamento sin tomar, que puede dar a uno de los agentes
-        (isAgentBot() && resource.data.get('paraDepartamento', false) == true && resource.data.asignado == ''
+        (isAgentBot() && mismosPermisos() && resource.data.get('paraDepartamento', false) == true && resource.data.asignado == ''
           && resource.data.estado == 'pendiente' && isAgentTask(request.resource.data))
       );
       allow delete: if isAdmin();

@@ -1,7 +1,7 @@
 // Pruebas de las funciones de contexto de la Agencia:  node --test
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { clientContext, briefSection, criteriosDe, parseReview, safeName } from './agencia.mjs'
+import { clientContext, briefSection, criteriosDe, parseReview, safeName, permisosDeTarea } from './agencia.mjs'
 
 const saor = {
   nombre: 'SAOR', negocio: { descripcion: 'Plomería en Cali', servicios: ['Destapes', 'Fugas'], zona: 'Cali', publico: 'Hogares' },
@@ -48,4 +48,12 @@ test('lee el JSON del revisor aunque venga con texto alrededor', () => {
 test('nombres de carpeta seguros', () => {
   assert.equal(safeName('a/b:c*?'), 'abc')
   assert.equal(safeName(''), 'Sin nombre')
+})
+
+test('permisos de la tarea: suma tipo y tarea, sin repetir, y descarta lo que no es un grupo del catálogo', () => {
+  const grupos = { salida: ['Write(./salida/**)'], web: ['WebSearch'], gmail: ['x'] }
+  assert.deepEqual(permisosDeTarea({ herramientas: ['salida'] }, { permisosExtra: ['web', 'salida'] }, grupos), ['salida', 'web'])
+  // Herramientas sueltas o grupos inventados no pasan
+  assert.deepEqual(permisosDeTarea(null, { permisosExtra: ['Bash', 'Bash(rm -rf /)', 'constructor', '__proto__'] }, grupos), [])
+  assert.deepEqual(permisosDeTarea(undefined, undefined, grupos), [])
 })

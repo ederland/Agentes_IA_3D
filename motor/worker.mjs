@@ -16,7 +16,7 @@ import {
 import { startTelegram } from './telegram.mjs'
 import { crearSkills } from './skills.mjs'
 import { crearEntregables } from './entregables.mjs'
-import { lista, safeName, clientContext, briefSection as briefPuro, parseReview } from './agencia.mjs'
+import { lista, safeName, clientContext, briefSection as briefPuro, parseReview, permisosDeTarea as permisosPuro } from './agencia.mjs'
 import { spawn } from 'node:child_process'
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync, existsSync, readdirSync, statSync, cpSync, copyFileSync } from 'node:fs'
 import { join, dirname, resolve, relative, isAbsolute, basename } from 'node:path'
@@ -231,11 +231,18 @@ const isCoordinador = (agent) => !!perfilDe(agent).coordinador || agent?.kind ==
 const coordinadorAgent = () => [...agents.values()].find(a => isCoordinador(a) && a.active !== false)
 const BASE_TOOLS = ['WebSearch', 'WebFetch', 'Read', 'Glob', 'Grep', 'Skill']
 
-function toolsFor(agent) {
+// Grupos de permisos que suma la tarea: los del tipo de tarea y los que un admin marcó en la tarea.
+// Solo nombres de grupos del catálogo: desde el panel no se pueden dar herramientas sueltas (p. ej. Bash).
+function permisosDeTarea(t, groups) {
+  return t ? permisosPuro(taskTypesById.get(t.tipoTareaId), t, groups) : []
+}
+
+function toolsFor(agent, t = null) {
   const p = perfilDe(agent)
   const groups = p._cat.herramientas || {}
   const list = new Set()
   for (const g of p.herramientas || ['web', 'archivos', 'skills']) for (const t of groups[g] || [g]) list.add(t)
+  for (const g of permisosDeTarea(t, groups)) for (const x of groups[g]) list.add(x)
   for (const t of p.herramientasExtra || []) list.add(t)
   if (lista(agent?.skills).length) list.add('Skill')
   if (folderFor(agent)) for (const t of groups.drive_crear || []) list.add(t)
@@ -529,7 +536,7 @@ function buildPrompt(agent, t, { adjuntos, observaciones } = {}) {
       ...Object.entries(sistemas).map(([c, s]) => `- ${c}: ${s}`),
       '- Cliente sin sistema asignado: elige la skill de diseño que mejor encaje entre las instaladas y explica la elección en las notas finales.')
   }
-  if (!usaApi(agent, t) && toolsFor(agent).some(x => x.startsWith('Write('))) lines.push(SALIDA_RULES)
+  if (!usaApi(agent, t) && toolsFor(agent, t).some(x => x.startsWith('Write('))) lines.push(SALIDA_RULES)
   const drive = driveRules(agent, t)
   if (drive) lines.push(drive)
   lines.push('\nSigue las reglas de CLAUDE.md. Tu respuesta final es el entregable.')
@@ -591,6 +598,8 @@ async function providerKey(id) {
 // Tareas que necesitan herramientas siempre van con Claude Code, aunque el agente tenga otro modelo
 function needsTools(agent, t) {
   if (perfilDe(agent).modelo?.requiereHerramientas) return true
+  // Permisos extra de la tarea (escribir archivos, Drive, video…) solo los usa Claude Code
+  if (t && permisosDeTarea(t, loadCatalogo().herramientas || {}).length) return true
   const tipo = t && taskTypesById.get(t.tipoTareaId)
   return ['video', 'dev', 'qa', 'seguridad'].includes(tipo?.capacidad) || ['archivos', 'video', 'pr'].includes(tipo?.formatoEntrega)
 }
@@ -807,7 +816,8 @@ async function runTask(t) {
   const agent = agents.get(t.asignado)
   const ref = doc(db, 'tasks', t.id)
   const started = Date.now()
-  log(`▶ ${agent.name} empieza "${t.tarea}" (${t.estado})`)
+  const extra = permisosDeTarea(t, loadCatalogo().herramientas || {})
+  log(`▶ ${agent.name} empieza "${t.tarea}" (${t.estado})${extra.length ? ` · permisos extra: ${extra.join(', ')}` : ''}`)
   heartbeat()
 
   try {
@@ -840,7 +850,7 @@ async function runTask(t) {
   const prompt = buildPrompt(agent, t, { adjuntos })
   writeFileSync(join(cwd, 'tarea.md'), prompt)
 
-  const opts = { tools: toolsFor(agent), agentName: deliveryName(agent), maxTurns: maxTurnsFor(agent) }
+  const opts = { tools: toolsFor(agent, t), agentName: deliveryName(agent), maxTurns: maxTurnsFor(agent) }
   const res = await runModel(agent, prompt, cwd, opts, t)
   let extraCost = 0, extraTurns = 0
   const seconds = Math.round((Date.now() - started) / 1000)
