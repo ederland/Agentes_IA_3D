@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useApp } from '../App.jsx'
 import { db } from '../firebase.js'
-import { doc, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore'
+import { doc, updateDoc, arrayUnion, serverTimestamp, onSnapshot } from 'firebase/firestore'
 
 // Revisión de una entrega de agente: brief vs entrega, notas del agente revisor, versiones
 // y las decisiones del equipo (Aprobar / Corregir / Rechazar). Las correcciones pueden quedar
@@ -135,6 +135,8 @@ export default function ReviewPanel({ task, onDone }) {
         </div>
       ) : <pre className="agent-result-body">{body}</pre>)}
 
+      {status === 'done' && <EntregaArchivos task={task} version={verIdx >= 0 ? versiones[verIdx] : null} />}
+
       {(task.driveUrl || task.drivePath) && (
         <p style={{ fontSize: 12, marginTop: 8 }}>
           Drive: {task.driveUrl ? <a href={task.driveUrl} target="_blank" rel="noreferrer">abrir carpeta del cliente</a> : null}
@@ -177,6 +179,62 @@ export default function ReviewPanel({ task, onDone }) {
         <p className="agent-result-hint">
           Agrega lo que pide en la descripción o en Link de recursos y muévela a Correcciones para que la retome.
         </p>
+      )}
+    </div>
+  )
+}
+
+// Vista previa de los PDF que el motor generó y links a los archivos en Drive (de la versión elegida)
+function EntregaArchivos({ task, version }) {
+  const [prev, setPrev] = useState(null)
+  const [grande, setGrande] = useState(null)
+  const n = version?.n
+  useEffect(() => {
+    if (!version?.preview) { setPrev(null); return }
+    return onSnapshot(doc(db, 'previews', task.id), s => setPrev(s.exists() ? s.data() : null), () => setPrev(null))
+  }, [task.id, n, version?.preview])
+  const drive = task.entregaDrive?.n === n ? task.entregaDrive : null
+  const archivos = version?.archivos || []
+  const vista = prev?.n === n ? prev.archivos || [] : []
+  if (!vista.length && !drive && !archivos.length && !task.conversionError) return null
+  return (
+    <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {task.conversionError && n === (task.versiones || []).slice(-1)[0]?.n && <p style={{ fontSize: 12.5, color: 'var(--danger)', margin: 0 }}>No se pudo crear el PDF: {task.conversionError}</p>}
+      {vista.map(a => (
+        <div key={a.archivo}>
+          <p className="form-label" style={{ margin: '0 0 6px' }}>Vista previa · {a.archivo} ({a.paginas.length} {a.paginas.length === 1 ? 'página' : 'páginas'})</p>
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
+            {a.paginas.map((src, i) => (
+              <img key={i} src={src} alt={`Página ${i + 1}`} onClick={() => setGrande({ src, i, a })}
+                style={{ height: 220, borderRadius: 6, border: '1px solid var(--border)', cursor: 'zoom-in', background: '#fff', flexShrink: 0 }} />
+            ))}
+          </div>
+        </div>
+      ))}
+      {(drive || archivos.length > 0) && (
+        <div style={{ fontSize: 12.5, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <strong>Archivos:</strong>
+          {drive?.archivos?.length
+            ? drive.archivos.map(f => <a key={f.url} href={f.url} target="_blank" rel="noopener noreferrer">{f.nombre}</a>)
+            : archivos.map(f => <span key={f} style={{ color: 'var(--text-2)' }}>{f}</span>)}
+          {drive?.carpeta && <a href={drive.carpeta} target="_blank" rel="noopener noreferrer">abrir carpeta de la versión</a>}
+          {!drive && <span style={{ color: 'var(--text-3)' }}>(en el PC del motor; con Drive configurado aparecen como links)</span>}
+        </div>
+      )}
+      {grande && (
+        <div className="modal-overlay" onClick={() => setGrande(null)} style={{ cursor: 'zoom-out' }}>
+          <div onClick={e => e.stopPropagation()} style={{ maxHeight: '92vh', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+            <img src={grande.src} alt="" style={{ maxHeight: '84vh', maxWidth: '92vw', borderRadius: 6, background: '#fff' }} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-secondary btn-sm" disabled={grande.i === 0}
+                onClick={() => setGrande(g => ({ ...g, i: g.i - 1, src: g.a.paginas[g.i - 1] }))}>← Anterior</button>
+              <span style={{ color: '#fff', fontSize: 13, alignSelf: 'center' }}>Página {grande.i + 1} de {grande.a.paginas.length}</span>
+              <button className="btn btn-secondary btn-sm" disabled={grande.i === grande.a.paginas.length - 1}
+                onClick={() => setGrande(g => ({ ...g, i: g.i + 1, src: g.a.paginas[g.i + 1] }))}>Siguiente →</button>
+              <button className="btn btn-primary btn-sm" onClick={() => setGrande(null)}>Cerrar</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

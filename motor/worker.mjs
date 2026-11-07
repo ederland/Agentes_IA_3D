@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore'
 import { startTelegram } from './telegram.mjs'
 import { crearSkills } from './skills.mjs'
+import { crearEntregables } from './entregables.mjs'
 import { lista, safeName, clientContext, briefSection as briefPuro, parseReview } from './agencia.mjs'
 import { spawn } from 'node:child_process'
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync, existsSync, readdirSync, statSync, cpSync, copyFileSync } from 'node:fs'
@@ -98,6 +99,7 @@ const heartbeat = (extra = {}) =>
   }, { merge: true }).then(() => true, e => { log('No pude actualizar el latido:', e.code || e.message); return false })
 
 // Skills de Claude Code instaladas en este PC (las del motor y las del usuario), para el panel
+const entregablesMgr = crearEntregables({ log: (...a) => log(...a), config: () => mediaConfig() })
 const skillsMgr = crearSkills({ ROOT, log: (...a) => log(...a), fuentesExtra: () => loadNegocio().fuentesSkills || [] })
 
 function installedSkills() {
@@ -527,11 +529,23 @@ function buildPrompt(agent, t, { adjuntos, observaciones } = {}) {
       ...Object.entries(sistemas).map(([c, s]) => `- ${c}: ${s}`),
       '- Cliente sin sistema asignado: elige la skill de diseño que mejor encaje entre las instaladas y explica la elección en las notas finales.')
   }
+  if (!usaApi(agent, t) && toolsFor(agent).some(x => x.startsWith('Write('))) lines.push(SALIDA_RULES)
   const drive = driveRules(agent, t)
   if (drive) lines.push(drive)
   lines.push('\nSigue las reglas de CLAUDE.md. Tu respuesta final es el entregable.')
   return lines.filter(l => l !== '').join('\n')
 }
+
+const SALIDA_RULES = `
+## Archivos entregables
+- Guarda tus archivos en la carpeta salida/ de esta tarea (es la única donde puedes escribir, con Write o Edit).
+- Para un PDF (brochure, portafolio, propuesta, flyer, presentación, informe): crea un HTML autocontenido
+  salida/<nombre-corto>.html. El motor lo convierte en PDF y saca la vista previa de cada página; no crees el PDF tú.
+  - Cada página es un <section class="pagina">. CSS: @page { size: A4; margin: 0 } y
+    .pagina { width: 210mm; height: 297mm; overflow: hidden; page-break-after: always; box-sizing: border-box }.
+  - Todo el CSS dentro del archivo. Sin JavaScript (no se ejecuta). Fuentes de Google Fonts por https sí funcionan.
+  - Imágenes por https (p. ej. el logo de la web del cliente) o archivos dentro de salida/.
+- Tu respuesta final resume el entregable y lista los archivos que creaste.`
 
 // ---------- Claude Code ----------
 function runClaude(prompt, cwd, { tools = BASE_TOOLS, resume, agentName, maxTurns = 40 } = {}) {
@@ -723,6 +737,36 @@ function rcloneSync(clienteFolder) {
   })
 }
 
+// Salida de rclone en JSON (p. ej. lsjson) o null si falla
+function rcloneJson(args) {
+  return new Promise((done) => {
+    let out = ''
+    const p = spawn('rclone', args, { windowsHide: true })
+    p.stdout.on('data', d => { out += d })
+    p.on('error', () => done(null))
+    p.on('close', code => { try { done(code === 0 ? JSON.parse(out) : null) } catch { done(null) } })
+  })
+}
+
+// Sube la versión a Drive y guarda en la tarea los links para abrir la carpeta y cada archivo (PDF incluido)
+async function publicarEnDrive(t, n, ponerLinkTerminada, pdfs = []) {
+  const remote = mediaConfig().rcloneRemote
+  const f = taskFolder(t)
+  await rcloneSync(f.cliente)
+  if (!remote) return
+  const padre = `${remote}/${f.cliente}/${f.dept}/${f.nombre}`
+  const [dirs, files] = await Promise.all([rcloneJson(['lsjson', '--dirs-only', padre]), rcloneJson(['lsjson', '--files-only', `${padre}/v${n}`])])
+  const carpeta = dirs?.find(d => d.Name === `v${n}`)?.ID
+  const archivos = (files || []).filter(x => x.ID).map(x => ({ nombre: x.Name, url: `https://drive.google.com/file/d/${x.ID}/view` }))
+  if (!carpeta && !archivos.length) return
+  const pdf = archivos.find(a => pdfs.includes(a.nombre))
+  await updateDoc(doc(db, 'tasks', t.id), {
+    entregaDrive: { n, carpeta: carpeta ? `https://drive.google.com/drive/folders/${carpeta}` : '', archivos: archivos.slice(0, 30) },
+    ...(ponerLinkTerminada && (pdf || carpeta) ? { linkTerminada: pdf?.url || `https://drive.google.com/drive/folders/${carpeta}` } : {}),
+  }).catch(e => log('No pude guardar los links de Drive:', e.code || e.message))
+  log(`☁ Versión ${n} de "${t.tarea}" en Drive${pdf ? ' (PDF incluido)' : ''}`)
+}
+
 const syncing = new Set()
 async function syncApproved(t) {
   if (syncing.has(t.id)) return
@@ -865,13 +909,17 @@ async function runTask(t) {
   // Nueva versión: carpeta local / Drive + historial en la tarea
   const prevVersions = lista(fresh.versiones)
   const n = (prevVersions[prevVersions.length - 1]?.n || 0) + 1
+  // HTML de salida/ → PDF + vista previa (lo hace el motor, no el agente)
+  const conv = await entregablesMgr.convertir(cwd, started).catch(e => ({ pdfs: [], previews: [], error: e.message }))
+  if (conv.error) log('Entregables:', conv.error)
+  else if (conv.pdfs.length) log(`📄 PDF listo: ${conv.pdfs.join(', ')}`)
   let saved = null
   try { saved = saveVersion(t, agent, result, cwd, started, n) } catch (e) { log('No pude guardar la versión:', e.message) }
   const versiones = [...prevVersions, {
     n, output: result.slice(0, 40000), archivos: saved?.archivos || [], fecha: new Date().toISOString(),
     agente: agent.name, ...(revisionAgente ? { revision: revisionAgente.estado } : {}),
+    ...(conv.pdfs.length ? { pdfs: conv.pdfs } : {}), ...(conv.previews.length ? { preview: true } : {}),
   }].slice(-8)
-  if (saved) rcloneSync(taskFolder(t).cliente)
 
   // El documento de Drive queda como "Link de la tarea terminada" si estaba vacío
   const docLink = result.match(/https:\/\/docs\.google\.com\/[^\s)>\]"]+/)?.[0]
@@ -888,7 +936,13 @@ async function runTask(t) {
     ...(t.agentOutput ? { agentPrevOutput: t.agentOutput.slice(0, MAX_OUTPUT) } : {}),
     agentOutput: result.slice(0, MAX_OUTPUT),
     ...(stillMine ? { fechaEntrega: serverTimestamp() } : {}),
+    conversionError: conv.error || null,
   })
+  if (conv.previews.length) {
+    await setDoc(doc(db, 'previews', t.id), { n, archivos: conv.previews, createdAt: serverTimestamp() })
+      .catch(e => log('No pude guardar la vista previa:', e.code || e.message))
+  }
+  if (saved) publicarEnDrive(t, n, !fresh.linkTerminada && !docLink, conv.pdfs)
   writeFileSync(join(cwd, 'entrega.md'), result)
   log(`✔ ${agent.name} entregó "${t.tarea}" en ${Math.round(seconds / 60)} min → Espera Aprobación`)
   telegram?.notify(`${agent.name} terminó "${t.tarea}". Está en Espera Aprobación.`)
