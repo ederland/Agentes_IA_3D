@@ -23,6 +23,7 @@ const ADMIN_NAV = [
 const SUPER_NAV = [
   { id: 'agents',  icon: 'star',     label: 'Agentes' },
   { id: 'clients', icon: 'building', label: 'Clientes' },
+  { id: 'agencia', icon: 'columns',  label: 'Agencia' },
 ]
 
 export default function Header({ page, setPage, onLogout }) {

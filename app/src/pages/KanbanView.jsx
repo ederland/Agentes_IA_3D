@@ -259,6 +259,8 @@ export default function KanbanView() {
       updates.fechaEntrega = serverTimestamp()
       updates.completedBy = userProfile?.name || user.email
       updates.completedByEmail = user.email
+      // Entregas de agentes: el motor copia la versión aprobada a Drive
+      if (task.agentOutput) updates.driveSync = 'pendiente'
     }
     // Volver a pendiente: se conserva el tiempo trabajado para seguir acumulando
     if (newStatus === 'pendiente') {

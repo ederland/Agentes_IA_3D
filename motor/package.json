@@ -8,7 +8,8 @@
     "start": "node worker.mjs",
     "check": "node worker.mjs --check",
     "agentes": "node worker.mjs --agents",
-    "crear-agentes": "node worker.mjs --crear-agentes"
+    "crear-agentes": "node worker.mjs --crear-agentes",
+    "test": "node --test agencia.test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "^2.1.296",

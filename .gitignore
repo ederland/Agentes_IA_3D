@@ -10,11 +10,14 @@ app/dist/
 motor/negocio.json
 motor/media-config.json
 .firebaserc
+.firebase/
 
 # Datos de trabajo del motor
 motor/logs/
 motor/trabajos/
 motor/entregas/
+motor/agencia/
+motor/secrets/
 motor/modelos/
 motor/.claude/
 motor/.agents/

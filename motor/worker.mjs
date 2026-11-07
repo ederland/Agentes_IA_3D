@@ -14,9 +14,10 @@ import {
   serverTimestamp, increment,
 } from 'firebase/firestore'
 import { startTelegram } from './telegram.mjs'
+import { lista, safeName, clientContext, briefSection as briefPuro, parseReview } from './agencia.mjs'
 import { spawn } from 'node:child_process'
-import { readFileSync, writeFileSync, mkdirSync, appendFileSync, existsSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { readFileSync, writeFileSync, mkdirSync, appendFileSync, existsSync, readdirSync, statSync, cpSync, copyFileSync } from 'node:fs'
+import { join, dirname, resolve, relative, isAbsolute, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import os from 'node:os'
 import dns from 'node:dns'
@@ -80,6 +81,10 @@ const agents = new Map()  // id -> agente
 const tasks = new Map()   // id -> tarea abierta
 const users = new Map()   // uid -> persona del equipo
 let telegram = null
+// Agencia: fichas de clientes, tipos de tarea y departamentos (colecciones clients, taskTypes, departments)
+const clientsById = new Map()
+const taskTypesById = new Map()
+const departmentsById = new Map()
 let running = null        // id de la tarea en ejecución
 let busyWith = ''
 let stopping = false
@@ -199,12 +204,13 @@ function businessContext() {
 
 const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '')
 
-function teamContext() {
+function teamContext(soloCliente = '') {
   const ag = [...agents.values()].filter(a => !isCoordinador(a))
     .map(a => `- ${a.name} (${a.role || 'general'})${a.active === false ? ' [en reserva]' : ''}${a.mission ? ': ' + a.mission : ''}`)
   const people = [...users.values()].filter(u => u.role === 'admin' || u.role === 'empleado')
     .map(u => `- ${u.name}${u.position ? ' (' + u.position + ')' : ''}`)
-  const open = [...tasks.values()].slice(0, 40).map(t => {
+  // En una tarea de un cliente, el coordinador solo ve las tareas de ese cliente
+  const open = [...tasks.values()].filter(t => !soloCliente || norm(t.cliente) === norm(soloCliente)).slice(0, 40).map(t => {
     const who = agents.get(t.asignado)?.name || users.get(t.asignado)?.name || 'sin asignar'
     return `- [${t.estado}] ${t.tarea} → ${who}${t.cliente ? ' · ' + t.cliente : ''}`
   })
@@ -337,38 +343,94 @@ async function createDelegatedTasks(text, origin) {
   return { text: out, created }
 }
 
+// ---------- Agencia: ficha del cliente, brief y adjuntos ----------
+// Cliente de la tarea: por clienteId, o por nombre en tareas viejas
+function clientFor(t) {
+  if (t.clienteId && clientsById.has(t.clienteId)) return clientsById.get(t.clienteId)
+  if (!t.cliente) return null
+  return [...clientsById.values()].find(c => norm(c.nombre) === norm(t.cliente)) || null
+}
+
+const briefSection = (t) => briefPuro(t, taskTypesById.get(t.tipoTareaId))
+const inside = (root, p) => { const r = relative(root, p); return r && !r.startsWith('..') && !isAbsolute(r) }
+
+// Carpeta de la agencia (sincronizada con Google Drive): media-config.json → agenciaDrive.
+// Sin configurar, las versiones quedan en motor/agencia (no se sube nada).
+function mediaConfig() {
+  try { return JSON.parse(readFileSync(join(ROOT, 'media-config.json'), 'utf8')) } catch { return {} }
+}
+function agencyRoot() {
+  const d = mediaConfig().agenciaDrive
+  return d && existsSync(d) ? d : join(ROOT, 'agencia')
+}
+
+// Adjuntos del brief: los links se pasan tal cual; las rutas (relativas a la carpeta de la agencia)
+// se copian a la carpeta de la tarea. Nada fuera de la carpeta de la agencia.
+function prepareAttachments(t, cwd) {
+  const root = agencyRoot()
+  const links = [], copied = [], missing = []
+  for (const item of lista(t.brief?.archivos)) {
+    if (/^https?:\/\//i.test(item)) { links.push(item); continue }
+    const src = resolve(root, item)
+    if (!inside(root, src) || !existsSync(src)) { missing.push(item); continue }
+    const dest = join(cwd, 'adjuntos', basename(src))
+    mkdirSync(dirname(dest), { recursive: true })
+    cpSync(src, dest, { recursive: true })
+    copied.push(`adjuntos/${basename(src)}`)
+  }
+  return { links, copied, missing }
+}
+
 // ---------- prompt ----------
-function buildPrompt(agent, t) {
+function buildPrompt(agent, t, { adjuntos, observaciones } = {}) {
   const revision = t.estado === 'en_revision'
+  const desdeCero = revision && t.rehacerDesdeCero
+  const perfil = perfilDe(agent)
+  const client = clientFor(t)
+  const brief = briefSection(t)
   const lines = [
-    `Eres ${agent.name}, agente de IA de ${negocio.nombre || 'este negocio'}. Tu área: ${agent.role || perfilDe(agent).nombre || 'general'}.`,
-    agent.mission || perfilDe(agent).mision ? `Tu misión: ${agent.mission || perfilDe(agent).mision}` : '',
+    `Eres ${agent.name}, agente de IA de ${negocio.nombre || 'este negocio'}. Tu área: ${agent.role || perfil.nombre || 'general'}.`,
+    agent.mission || perfil.mision ? `Tu misión: ${agent.mission || perfil.mision}` : '',
     '\n' + businessContext(),
+    client ? '\n' + clientContext(client) : '',
     '',
     revision ? '## CORRECCIONES pedidas sobre tu entrega anterior' : '## Tarea asignada',
     `Tarea: ${t.tarea}`,
     t.cliente ? `Cliente: ${t.cliente}` : '',
     t.prioridad ? `Prioridad: ${t.prioridad}` : '',
     t.fechaVencimiento ? `Fecha de entrega: ${t.fechaVencimiento}` : '',
+    brief ? `\n${brief}` : '',
     t.descripcion ? `\nDescripción / brief:\n${t.descripcion}` : '',
     t.links ? `\nLinks de recursos: ${t.links}` : '',
     t.linkTerminada ? `Link de referencia o entregable: ${t.linkTerminada}` : '',
   ]
+  if (adjuntos?.links.length) lines.push(`\nLinks adjuntos al brief:\n${adjuntos.links.map(l => '- ' + l).join('\n')}`)
+  if (adjuntos?.copied.length) lines.push(`\nArchivos adjuntos (en tu carpeta de trabajo, léelos con Read):\n${adjuntos.copied.map(l => '- ' + l).join('\n')}`)
+  if (adjuntos?.missing.length) lines.push(`\nNo se encontraron estos adjuntos (menciónalo en Notas): ${adjuntos.missing.join(', ')}`)
   if (revision) {
     if (t.agentQuestion) lines.push(`\nTu pregunta anterior a ${OWNER}:\n${t.agentQuestion}`)
     if (t.feedback) lines.push(`\nComentarios y respuestas de ${OWNER} (aplícalos todos):\n${t.feedback}`)
-    if (t.agentOutput) lines.push(`\nTu entrega anterior:\n<<<\n${t.agentOutput}\n>>>`)
+    if (desdeCero) lines.push('\nLa entrega anterior fue RECHAZADA: hazla de nuevo desde cero con otro enfoque. No la reutilices.')
+    else if (t.agentOutput) lines.push(`\nTu entrega anterior:\n<<<\n${t.agentOutput}\n>>>`)
     lines.push('\nEntrega la versión corregida completa (no solo los cambios).')
   }
-  if (isCoordinador(agent)) lines.push('\n' + teamContext(), DELEGATION_RULES)
+  if (observaciones) {
+    lines.push(`\n## Observaciones del agente revisor sobre tu entrega\n${observaciones.notas.map(n => '- ' + n).join('\n')}`,
+      `\nTu entrega revisada:\n<<<\n${observaciones.entrega}\n>>>`,
+      '\nCorrige todas las observaciones y entrega la versión completa.')
+  }
+  if (isCoordinador(agent)) lines.push('\n' + teamContext(t.cliente), DELEGATION_RULES)
   else lines.push('\n' + agentsRoster())
   const credits = creditRules(agent)
   if (credits) lines.push(credits)
-  // Instrucciones de trabajo propias del perfil (p. ej. el flujo de edición de Clint)
-  const instr = perfilDe(agent)?.instrucciones
-  if (instr?.length) lines.push('\n## Tu forma de trabajar', ...instr.map(s => `- ${s}`))
+  // Instrucciones de trabajo: las del rol (p. ej. el flujo de edición de video) y las propias del agente
+  const instr = [...lista(perfil?.instrucciones), ...lista(agent.instrucciones)]
+  if (instr.length) lines.push('\n## Tu forma de trabajar', ...instr.map(s => `- ${s}`))
+  const ejemplos = lista(agent.ejemplos).filter(e => e.texto).slice(0, 3)
+  if (ejemplos.length) lines.push('\n## Ejemplos de trabajo que le gustaron a ' + OWNER + ' (imita el nivel, no copies el contenido)',
+    ...ejemplos.map(e => `### ${e.titulo || 'Ejemplo'}\n${String(e.texto).slice(0, 3000)}`))
   // Sistemas de diseño por cliente (negocio.json → agentes[id].sistemasPorCliente)
-  const sistemas = perfilDe(agent)?.sistemasPorCliente
+  const sistemas = perfil?.sistemasPorCliente
   if (sistemas) {
     lines.push('\n## Sistema de diseño por cliente (usa la skill indicada)',
       ...Object.entries(sistemas).map(([c, s]) => `- ${c}: ${s}`),
@@ -407,6 +469,151 @@ function runClaude(prompt, cwd, { tools = BASE_TOOLS, resume, agentName, maxTurn
   })
 }
 
+// ---------- Modelo alterno (API compatible con OpenAI: Gemini, OpenRouter, Groq, Ollama…) ----------
+// Solo texto: no tiene herramientas (ni web ni archivos). Se configura en motor/.env:
+// ALT_LLM_BASE_URL, ALT_LLM_API_KEY (vacía para Ollama) y ALT_LLM_MODEL (modelo por defecto).
+const usaAlterno = (agent) => agent?.modelo?.proveedor === 'alterno'
+
+async function runAlt(prompt, model) {
+  const base = (env.ALT_LLM_BASE_URL || '').replace(/\/+$/, '')
+  model = model || env.ALT_LLM_MODEL
+  if (!base || !model) return { code: 1, json: null, err: 'Modelo alterno sin configurar: faltan ALT_LLM_BASE_URL o ALT_LLM_MODEL en motor/.env' }
+  let reglas = ''
+  try { reglas = readFileSync(join(ROOT, 'CLAUDE.md'), 'utf8') } catch {}
+  try {
+    const r = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(env.ALT_LLM_API_KEY ? { Authorization: `Bearer ${env.ALT_LLM_API_KEY}` } : {}) },
+      body: JSON.stringify({ model, messages: [{ role: 'system', content: reglas }, { role: 'user', content: prompt }] }),
+      signal: AbortSignal.timeout(10 * 60 * 1000),
+    })
+    const data = await r.json().catch(() => null)
+    const text = data?.choices?.[0]?.message?.content
+    if (!r.ok || !text) return { code: 1, json: null, err: `Modelo alterno (${model}): ${data?.error?.message || r.status}` }
+    return { code: 0, json: { result: text, total_cost_usd: 0, num_turns: 1, modelo: model }, err: '' }
+  } catch (e) {
+    return { code: 1, json: null, err: `Modelo alterno (${model}): ${e.message}` }
+  }
+}
+
+// Ejecuta con el modelo del agente: Claude Code por defecto, o el alterno si así está configurado
+function runModel(agent, prompt, cwd, opts) {
+  return usaAlterno(agent) ? runAlt(prompt, agent.modelo?.nombre) : runClaude(prompt, cwd, opts)
+}
+
+const maxTurnsFor = (agent) => Number(agent?.presupuesto?.maxTurnos) || perfilDe(agent).maxTurns || 40
+
+// ---------- Revisión entre agentes ----------
+// Si el tipo de tarea tiene rol revisor y hay un agente activo con ese rol, revisa la entrega contra
+// el brief y el checklist. Con observaciones, el autor corrige UNA vez y pasa a Espera Aprobación.
+function reviewerFor(t, author) {
+  const rol = taskTypesById.get(t.tipoTareaId)?.revisor
+  if (!rol) return null
+  const ok = (a) => a.active !== false && (a.rol || perfilDe(a).id) === rol && a.id !== author.id
+  return [...agents.values()].find(ok) || null
+}
+
+async function reviewDelivery(reviewer, t, entrega, cwd) {
+  const client = clientFor(t)
+  const prompt = [
+    `Eres ${reviewer.name}, revisor de calidad. Revisa la entrega de otro agente. No la rehagas.`,
+    client ? '\n' + clientContext(client) : '',
+    `\n## Tarea\n${t.tarea}`,
+    briefSection(t),
+    t.descripcion ? `\nDescripción:\n${t.descripcion}` : '',
+    `\n## Entrega a revisar\n<<<\n${entrega.slice(0, 60000)}\n>>>`,
+    '\nResponde SOLO con un JSON, sin texto adicional:',
+    '{"estado": "ok" | "observaciones", "notas": ["observación concreta y accionable", "..."]}',
+    'Usa "ok" si cumple los criterios. Usa "observaciones" solo si hay problemas reales.',
+  ].filter(Boolean).join('\n')
+  writeFileSync(join(cwd, 'revision.md'), prompt)
+  const res = await runModel(reviewer, prompt, cwd, { tools: ['Read', 'Glob', 'Grep'], agentName: deliveryName(reviewer), maxTurns: maxTurnsFor(reviewer) })
+  const parsed = res.code === 0 && res.json?.result ? parseReview(res.json.result) : null
+  return { parsed, cost: res.json?.total_cost_usd || 0, turns: res.json?.num_turns || 0 }
+}
+
+// ---------- Versiones y Drive ----------
+// Cada entrega queda en <agencia>/<Cliente>/<Departamento>/<AAAA-MM-DD Tarea>/v<n>/ con entrega.md
+// y los archivos que el agente guardó durante la tarea. Al aprobar se copia a <Cliente>/Aprobados/.
+function taskFolder(t) {
+  const client = clientFor(t)
+  const dept = departmentsById.get(t.departamentoId)?.nombre || t.departamentoId || 'General'
+  const fecha = (t.createdAt?.toDate?.() || new Date()).toISOString().slice(0, 10)
+  return { cliente: safeName(client?.nombre || t.cliente || negocio.nombre || 'Interno'), dept: safeName(dept), nombre: safeName(`${fecha} ${t.tarea}`), client }
+}
+
+// Archivos que el agente guardó en su carpeta de entregas desde que empezó la tarea
+function filesSince(dir, sinceMs, out = []) {
+  if (!existsSync(dir)) return out
+  for (const f of readdirSync(dir)) {
+    const p = join(dir, f)
+    let st; try { st = statSync(p) } catch { continue }
+    if (st.isDirectory()) { if (f !== 'Entrada') filesSince(p, sinceMs, out) }
+    else if (st.mtimeMs >= sinceMs) out.push(p)
+  }
+  return out
+}
+function agentDeliveryDir(agent) {
+  const d = mediaConfig().driveLocal
+  return join(d && existsSync(d) ? d : join(ROOT, 'entregas'), safeName(deliveryName(agent)))
+}
+
+function saveVersion(t, agent, entrega, cwd, sinceMs, n) {
+  const f = taskFolder(t)
+  const dir = join(agencyRoot(), f.cliente, f.dept, f.nombre, `v${n}`)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'entrega.md'), entrega)
+  const archivos = []
+  for (const src of [...filesSince(agentDeliveryDir(agent), sinceMs), ...filesSince(join(cwd, 'salida'), sinceMs)]) {
+    try { copyFileSync(src, join(dir, basename(src))); archivos.push(basename(src)) } catch {}
+  }
+  return { dir, archivos }
+}
+
+// Sube con rclone si está configurado (media-config.json → rcloneRemote, p. ej. "gdrive:Agencia")
+function rcloneSync(clienteFolder) {
+  const remote = mediaConfig().rcloneRemote
+  if (!remote) return Promise.resolve()
+  return new Promise((done) => {
+    const p = spawn('rclone', ['copy', join(agencyRoot(), clienteFolder), `${remote}/${clienteFolder}`], { windowsHide: true })
+    p.on('error', e => { log('rclone:', e.message); done() })
+    p.on('close', code => { if (code) log(`rclone terminó con código ${code}`); done() })
+  })
+}
+
+const syncing = new Set()
+async function syncApproved(t) {
+  if (syncing.has(t.id)) return
+  syncing.add(t.id)
+  const ref = doc(db, 'tasks', t.id)
+  try {
+    const versiones = lista(t.versiones)
+    const ultima = versiones[versiones.length - 1]
+    const f = taskFolder(t)
+    const origen = ultima ? join(agencyRoot(), f.cliente, f.dept, f.nombre, `v${ultima.n}`) : null
+    if (!origen || !existsSync(origen)) {
+      await updateDoc(ref, { driveSync: 'sin_version' })
+      return
+    }
+    const destino = join(agencyRoot(), f.cliente, 'Aprobados', f.nombre)
+    mkdirSync(destino, { recursive: true })
+    cpSync(origen, destino, { recursive: true })
+    await rcloneSync(f.cliente)
+    const folderId = f.client?.activos?.driveFolderId
+    await updateDoc(ref, {
+      driveSync: mediaConfig().agenciaDrive || mediaConfig().rcloneRemote ? 'ok' : 'local',
+      drivePath: relative(agencyRoot(), destino),
+      ...(folderId ? { driveUrl: `https://drive.google.com/drive/folders/${folderId}` } : {}),
+    })
+    log(`📁 Aprobada "${t.tarea}" → ${relative(agencyRoot(), destino)}`)
+  } catch (e) {
+    log(`✖ No pude copiar la aprobada "${t.tarea}":`, e.code || e.message)
+    await updateDoc(ref, { driveSync: 'error' }).catch(() => {})
+  } finally {
+    syncing.delete(t.id)
+  }
+}
+
 // ---------- ejecutar una tarea ----------
 async function runTask(t) {
   running = t.id
@@ -432,12 +639,24 @@ async function runTask(t) {
     return
   }
 
+  // El agente solo atiende a los clientes que tiene permitidos
+  const client = clientFor(t)
+  if (Array.isArray(agent.clientesPermitidos) && client && !agent.clientesPermitidos.includes(client.id)) {
+    await updateDoc(ref, { estado: 'en_espera', timerStartedAt: null, agentStatus: 'error',
+      agentError: `${agent.name} no atiende a ${client.nombre}. Asígnala a otro agente o agrégale el cliente en su ficha.` })
+    log(`✖ ${agent.name} no atiende a ${client.nombre}: "${t.tarea}" devuelta`)
+    return
+  }
+
   const cwd = join(ROOT, 'trabajos', t.id)
   mkdirSync(cwd, { recursive: true })
-  const prompt = buildPrompt(agent, t)
+  const adjuntos = prepareAttachments(t, cwd)
+  const prompt = buildPrompt(agent, t, { adjuntos })
   writeFileSync(join(cwd, 'tarea.md'), prompt)
 
-  const res = await runClaude(prompt, cwd, { tools: toolsFor(agent), agentName: deliveryName(agent), maxTurns: perfilDe(agent).maxTurns || 40 })
+  const opts = { tools: toolsFor(agent), agentName: deliveryName(agent), maxTurns: maxTurnsFor(agent) }
+  const res = await runModel(agent, prompt, cwd, opts)
+  let extraCost = 0, extraTurns = 0
   const seconds = Math.round((Date.now() - started) / 1000)
   let result = (res.json?.result || '').trim()
   const failed = res.code !== 0 || !res.json || res.json.is_error || !result
@@ -451,6 +670,7 @@ async function runTask(t) {
     agentRuns: increment(1),
     agentLastRunAt: serverTimestamp(),
     ...(res.json?.total_cost_usd ? { agentCostUsd: increment(res.json.total_cost_usd) } : {}),
+    ...(res.json?.num_turns ? { 'costo.turnos': increment(res.json.num_turns) } : {}),
     ...(stillMine ? { estado: 'en_espera' } : {}),
   }
 
@@ -475,6 +695,42 @@ async function runTask(t) {
 
   if (isCoordinador(agent)) result = (await createDelegatedTasks(result, 'tarea del Pipeline')).text
 
+  // Revisión entre agentes (máximo un ciclo automático de corrección)
+  let revisionAgente = null
+  const reviewer = !isCoordinador(agent) && reviewerFor(t, agent)
+  if (reviewer) {
+    await updateDoc(ref, { agentStatus: 'reviewing' }).catch(() => {})
+    log(`🔎 ${reviewer.name} revisa "${t.tarea}"`)
+    const r1 = await reviewDelivery(reviewer, t, result, cwd)
+    extraCost += r1.cost; extraTurns += r1.turns
+    let corregida = false
+    if (r1.parsed?.estado === 'observaciones' && r1.parsed.notas.length) {
+      log(`↻ ${agent.name} corrige "${t.tarea}" (${r1.parsed.notas.length} observaciones)`)
+      await updateDoc(ref, { agentStatus: 'running' }).catch(() => {})
+      const p2 = buildPrompt(agent, t, { adjuntos, observaciones: { notas: r1.parsed.notas, entrega: result } })
+      const res2 = await runModel(agent, p2, cwd, opts)
+      extraCost += res2.json?.total_cost_usd || 0; extraTurns += res2.json?.num_turns || 0
+      const r2text = (res2.json?.result || '').trim()
+      if (res2.code === 0 && r2text && !/^NECESITO:/i.test(r2text)) { result = r2text; corregida = true }
+    }
+    revisionAgente = {
+      agenteId: reviewer.id, agenteNombre: reviewer.name,
+      estado: r1.parsed ? (corregida ? 'corregida' : r1.parsed.estado) : 'sin_respuesta',
+      notas: r1.parsed?.notas || [], corregida, fecha: new Date().toISOString(),
+    }
+  }
+
+  // Nueva versión: carpeta local / Drive + historial en la tarea
+  const prevVersions = lista(fresh.versiones)
+  const n = (prevVersions[prevVersions.length - 1]?.n || 0) + 1
+  let saved = null
+  try { saved = saveVersion(t, agent, result, cwd, started, n) } catch (e) { log('No pude guardar la versión:', e.message) }
+  const versiones = [...prevVersions, {
+    n, output: result.slice(0, 40000), archivos: saved?.archivos || [], fecha: new Date().toISOString(),
+    agente: agent.name, ...(revisionAgente ? { revision: revisionAgente.estado } : {}),
+  }].slice(-8)
+  if (saved) rcloneSync(taskFolder(t).cliente)
+
   // El documento de Drive queda como "Link de la tarea terminada" si estaba vacío
   const docLink = result.match(/https:\/\/docs\.google\.com\/[^\s)>\]"]+/)?.[0]
   await updateDoc(ref, {
@@ -482,6 +738,11 @@ async function runTask(t) {
     ...(docLink && !fresh.linkTerminada ? { linkTerminada: docLink } : {}),
     agentStatus: 'done',
     agentQuestion: '',
+    versiones,
+    rehacerDesdeCero: false,
+    ...(revisionAgente ? { revisionAgente } : {}),
+    ...(extraCost ? { agentCostUsd: increment((res.json?.total_cost_usd || 0) + extraCost) } : {}),
+    ...(extraTurns ? { 'costo.turnos': increment((res.json?.num_turns || 0) + extraTurns) } : {}),
     ...(t.agentOutput ? { agentPrevOutput: t.agentOutput.slice(0, MAX_OUTPUT) } : {}),
     agentOutput: result.slice(0, MAX_OUTPUT),
     ...(stillMine ? { fechaEntrega: serverTimestamp() } : {}),
@@ -721,6 +982,20 @@ async function main() {
     users.clear()
     snap.forEach(d => users.set(d.id, { uid: d.id, ...d.data() }))
   }, e => log('Error leyendo el equipo:', e.code || e.message))
+
+  // Agencia: fichas de clientes, tipos de tarea y departamentos
+  const mirror = (name, map) => onSnapshot(collection(db, name), snap => {
+    map.clear()
+    snap.forEach(d => map.set(d.id, { id: d.id, ...d.data() }))
+  }, e => log(`Error leyendo ${name}:`, e.code || e.message))
+  mirror('clients', clientsById)
+  mirror('taskTypes', taskTypesById)
+  mirror('departments', departmentsById)
+
+  // Entregas aprobadas: copiar la última versión a <Cliente>/Aprobados
+  onSnapshot(query(collection(db, 'tasks'), where('driveSync', '==', 'pendiente')), snap => {
+    snap.forEach(d => syncApproved({ id: d.id, ...d.data() }))
+  }, e => log('Error leyendo aprobadas:', e.code || e.message))
 
   if (env.TELEGRAM_BOT_TOKEN && !env.TELEGRAM_BOT_TOKEN.startsWith('PEGA_AQUI')) {
     let voz = null
