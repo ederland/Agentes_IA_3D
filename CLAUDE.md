@@ -8,6 +8,24 @@ Proyecto de código abierto: una oficina 3D con agentes de IA para cualquier neg
 - `app/` — app web (React + Vite + Three.js + Firebase): Pipeline de tareas, Oficina 3D, chat con agentes, equipo.
 - `motor/` — motor local (Node): toma las tareas de los agentes y las ejecuta con Claude Code; Telegram, voz, medios.
 - `roles/catalogo.json` — catálogo de roles (habilidades) que comparten la app y el motor.
+- **Agencia** (multi-cliente): colecciones `clients` (ficha de contexto por cliente), `departments` y `taskTypes`
+  (plantilla de brief, checklist y rol revisor). Las tareas guardan `clienteId`, `departamentoId`, `tipoTareaId`,
+  `brief`, `briefCampos`, `versiones`, `revisionAgente` y `driveSync`/`drivePath`/`driveUrl`. Se conserva el campo
+  `cliente` (nombre) para tareas viejas. Pantallas: Clientes (ficha), Agencia (departamentos y tipos), panel de
+  revisión en la tarea (`ReviewPanel`).
+- En el motor, `motor/agencia.mjs` arma la ficha y el brief (funciones puras, `npm test` en `motor/`). Regla: un
+  agente solo recibe la ficha del cliente de su tarea; el coordinador, en una tarea de cliente, solo ve las tareas
+  de ese cliente.
+- Versiones y Drive: cada entrega queda en `<agenciaDrive>/<Cliente>/<Departamento>/<fecha tarea>/v<n>/` y al aprobar
+  se copia a `<Cliente>/Aprobados/`. `agenciaDrive` (carpeta sincronizada con Google Drive) y `rcloneRemote` van en
+  `motor/media-config.json`; sin configurar, todo queda en `motor/agencia/`.
+- Modelos de IA: Claude Code por defecto. En Agencia → Modelos de IA se agregan proveedores con API compatible con
+  OpenAI (`providers/{id}`); la clave va en `providerSecrets/{id}`, que el panel escribe pero solo el motor lee.
+  Un agente con `modelo = { proveedor: 'api', proveedorId, nombre }` usa ese modelo (solo texto). Los roles con
+  `modelo.requiereHerramientas` y los tipos de tarea de video/archivos/código siempre van con Claude Code.
+  `modelo.proveedor = 'alterno'` usa `ALT_LLM_*` de `motor/.env`.
+- Skills por agente (`agents.skills`): el motor publica las skills instaladas en `config/agentWorker.skills`.
+  Lecciones por agente (`agents.aprendizajes`) y por cliente (`clients.aprendizajes`) se agregan desde la revisión.
 - `firestore.rules` — reglas de seguridad. `tools/configurar.mjs` las personaliza.
 - `.claude/skills/instalar/` — asistente de instalación.
 

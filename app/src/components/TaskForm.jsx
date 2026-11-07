@@ -5,9 +5,11 @@ import { doc, addDoc, updateDoc, collection, serverTimestamp } from 'firebase/fi
 import { logWork } from '../utils/worklog.js'
 import { sendTaskAssignedEmail } from '../utils/emailNotify.js'
 import Icon from './Icons.jsx'
+import ReviewPanel from './ReviewPanel.jsx'
+import { toLines, fromLines } from '../agencia.js'
 
 export default function TaskForm() {
-  const { user, users, agents, clients, userProfile, editingTask, closeTaskForm, showToast, sendNotification, isAdmin, isSuperAdmin } = useApp()
+  const { user, users, agents, clients, clientDocs, departments, taskTypes, userProfile, editingTask, closeTaskForm, showToast, sendNotification, isAdmin, isSuperAdmin } = useApp()
   const CLIENTES = clients || []
   const isEdit = !!editingTask
 
@@ -26,8 +28,27 @@ export default function TaskForm() {
     feedback: '',
     rating: 0,
   })
+  // Brief estructurado (Agencia): se guarda aparte del resto de campos de la tarea
+  const [brief, setBrief] = useState({
+    departamentoId: '', tipoTareaId: '',
+    objetivo: '', resultadoEsperado: '', criterios: '', contexto: '', archivos: '', campos: {},
+  })
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const setB = (k, v) => { setBrief(b => ({ ...b, [k]: v })); setDirty(true) }
+  const tipo = taskTypes.find(t => t.id === brief.tipoTareaId)
+  const tiposVisibles = taskTypes.filter(t => !brief.departamentoId || t.departamento === brief.departamentoId)
+
+  // Al elegir un tipo: fija su departamento y, en tareas nuevas, propone al agente con ese rol
+  const pickTipo = (id) => {
+    const t = taskTypes.find(x => x.id === id)
+    setBrief(b => ({ ...b, tipoTareaId: id, departamentoId: t?.departamento || b.departamentoId }))
+    if (t && !isEdit) {
+      const a = agents.find(a => a.active && a.rol === t.rol)
+      setForm(f => ({ ...f, asignado: a ? a.id : f.asignado, tarea: f.tarea || t.nombre }))
+    }
+    setDirty(true)
+  }
 
   // Populate form for editing
   useEffect(() => {
@@ -51,8 +72,28 @@ export default function TaskForm() {
         feedback: editingTask.feedback || '',
         rating: editingTask.rating || 0,
       })
+      const b = editingTask.brief || {}
+      setBrief({
+        departamentoId: editingTask.departamentoId || '', tipoTareaId: editingTask.tipoTareaId || '',
+        objetivo: b.objetivo || '', resultadoEsperado: b.resultadoEsperado || '',
+        criterios: toLines(b.criteriosAceptacion), contexto: b.contexto || '', archivos: toLines(b.archivos),
+        campos: editingTask.briefCampos || {},
+      })
     }
   }, [editingTask])
+
+  // Campos de Agencia que se guardan en la tarea
+  const agencyFields = () => ({
+    clienteId: clientDocs.find(c => c.nombre === form.cliente)?.id || '',
+    departamentoId: brief.departamentoId || tipo?.departamento || '',
+    tipoTareaId: brief.tipoTareaId || '',
+    capacidad: tipo?.capacidad || 'general',
+    brief: {
+      objetivo: brief.objetivo.trim(), resultadoEsperado: brief.resultadoEsperado.trim(),
+      criteriosAceptacion: fromLines(brief.criterios), contexto: brief.contexto.trim(), archivos: fromLines(brief.archivos),
+    },
+    briefCampos: Object.fromEntries((tipo?.plantillaBrief || []).map(c => [c.campo, String(brief.campos[c.campo] ?? '').trim()])),
+  })
 
   function toDateInputValue(ts) {
     if (!ts) return ''
@@ -94,6 +135,8 @@ export default function TaskForm() {
       updates.fechaEntrega = serverTimestamp()
       updates.completedBy = userProfile?.name || user.email
       updates.completedByEmail = user.email
+      // Entregas de agentes: el motor copia la versión aprobada a Drive
+      if (oldTask.agentOutput) updates.driveSync = 'pendiente'
     }
     // Volver a pendiente: el tiempo trabajado se CONSERVA para seguir
     // acumulando al retomarla; solo se limpian las marcas de entrega
@@ -109,12 +152,15 @@ export default function TaskForm() {
 
   const handleSave = async () => {
     if (!form.tarea.trim()) { showToast('Ingresa el nombre de la tarea', 'error'); return }
+    const falta = (tipo?.plantillaBrief || []).find(c => c.requerido && !String(brief.campos[c.campo] ?? '').trim())
+    if (falta) { showToast(`Falta "${falta.etiqueta}" en el brief`, 'error'); return }
     setSaving(true)
     try {
       if (isEdit) {
         const timerUpdates = computeTimerUpdates(editingTask, form.estado)
         const updates = {
           ...form,
+          ...agencyFields(),
           fechaRequerimiento: form.fechaRequerimiento
             ? new Date(form.fechaRequerimiento + 'T12:00:00')
             : null,
@@ -159,6 +205,8 @@ export default function TaskForm() {
       } else {
         const newTask = {
           ...form,
+          ...agencyFields(),
+          creadaPor: 'equipo',
           fechaRequerimiento: form.fechaRequerimiento
             ? new Date(form.fechaRequerimiento + 'T12:00:00')
             : null,
@@ -233,7 +281,7 @@ export default function TaskForm() {
   return (
     // Clic afuera NO cierra el formulario: evita perder lo que se está escribiendo
     <div className="modal-overlay">
-      <div className="modal">
+      <div className={`modal ${isEdit && editingTask.agentOutput ? 'modal-wide' : ''}`}>
         <div className="modal-header">
           <h2 className="modal-title">{isEdit ? 'Editar tarea' : 'Nueva tarea'}</h2>
           <button className="icon-btn" onClick={handleCancel} title="Cerrar">✕</button>
@@ -256,7 +304,7 @@ export default function TaskForm() {
           </div>
         )}
 
-        {isEdit && <AgentResult task={editingTask} showToast={showToast} />}
+        {isEdit && <ReviewPanel task={editingTask} onDone={closeTaskForm} />}
 
         {readOnly ? (
           <ReadOnlyTask task={editingTask} users={users} />
@@ -346,6 +394,66 @@ export default function TaskForm() {
                 </select>
               </div>
             </div>
+
+            {/* Agencia: departamento, tipo de tarea y brief */}
+            {(departments.length > 0 || taskTypes.length > 0) && (
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Departamento</label>
+                  <select className="form-select" value={brief.departamentoId} onChange={e => setB('departamentoId', e.target.value)}>
+                    <option value="">— Selecciona —</option>
+                    {departments.filter(d => d.activo !== false).map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Tipo de tarea</label>
+                  <select className="form-select" value={brief.tipoTareaId} onChange={e => pickTipo(e.target.value)}>
+                    <option value="">Libre (sin plantilla)</option>
+                    {tiposVisibles.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+                  </select>
+                </div>
+              </div>
+            )}
+            {tipo?.plantillaBrief?.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '12px 14px', background: 'var(--bg-2)', borderRadius: 10 }}>
+                <span className="form-label" style={{ margin: 0 }}>Brief: {tipo.nombre}</span>
+                {tipo.plantillaBrief.map(c => (
+                  <div className="form-group" key={c.campo}>
+                    <label className="form-label">{c.etiqueta}{c.requerido ? ' *' : ''}</label>
+                    {c.tipo === 'texto_largo'
+                      ? <textarea className="form-textarea" rows={3} value={brief.campos[c.campo] ?? ''} onChange={e => setB('campos', { ...brief.campos, [c.campo]: e.target.value })} />
+                      : <input className="form-input" type={c.tipo === 'numero' ? 'number' : c.tipo === 'url' ? 'url' : 'text'}
+                          value={brief.campos[c.campo] ?? ''} onChange={e => setB('campos', { ...brief.campos, [c.campo]: e.target.value })} />}
+                  </div>
+                ))}
+              </div>
+            )}
+            <details open={!!(brief.objetivo || brief.criterios || brief.resultadoEsperado)}>
+              <summary className="form-label" style={{ cursor: 'pointer' }}>Brief detallado (objetivo, resultado esperado, criterios, archivos)</summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 10 }}>
+                <div className="form-group">
+                  <label className="form-label">Objetivo</label>
+                  <input className="form-input" value={brief.objetivo} onChange={e => setB('objetivo', e.target.value)} placeholder="¿Para qué es esta tarea?" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Resultado esperado</label>
+                  <input className="form-input" value={brief.resultadoEsperado} onChange={e => setB('resultadoEsperado', e.target.value)} placeholder="¿Qué se entrega exactamente?" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Criterios de aceptación</label>
+                  <textarea className="form-textarea" rows={3} value={brief.criterios} onChange={e => setB('criterios', e.target.value)} placeholder="Uno por línea. El agente revisor los verifica." />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Contexto adicional</label>
+                  <textarea className="form-textarea" rows={2} value={brief.contexto} onChange={e => setB('contexto', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Archivos</label>
+                  <textarea className="form-textarea" rows={2} value={brief.archivos} onChange={e => setB('archivos', e.target.value)}
+                    placeholder="Uno por línea: links, o rutas dentro de la carpeta de la agencia en Drive (ej. SAOR/fotos/obra1.jpg)" />
+                </div>
+              </div>
+            </details>
 
             <div className="form-row">
               {/* Prioridad */}
@@ -500,42 +608,6 @@ export default function TaskForm() {
           </div>
         )}
       </div>
-    </div>
-  )
-}
-
-// Trabajo entregado por un agente de IA (lo escribe el motor de agentes desde el PC del dueño)
-function AgentResult({ task, showToast }) {
-  const status = task.agentStatus
-  if (!status && !task.agentOutput) return null
-  const info = {
-    running: { text: 'El agente está trabajando en esta tarea…', color: 'var(--purple)' },
-    queued: { text: 'En cola: el agente la tomará en cuanto termine lo que está haciendo', color: 'var(--text-3)' },
-    needs_info: { text: 'El agente necesita información para continuar', color: 'var(--warning)' },
-    error: { text: 'El agente tuvo un problema con esta tarea', color: 'var(--danger)' },
-    done: { text: 'Entrega lista para tu aprobación', color: 'var(--success)' },
-  }[status] || { text: 'Resultado del agente', color: 'var(--text-2)' }
-  const body = status === 'needs_info' ? task.agentQuestion : status === 'error' ? task.agentError : task.agentOutput
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(body || ''); showToast('Copiado') } catch { showToast('No se pudo copiar', 'error') }
-  }
-  return (
-    <div className="agent-result">
-      <div className="agent-result-head">
-        <span style={{ color: info.color, fontWeight: 700 }}>{info.text}</span>
-        {body && <button type="button" className="btn btn-secondary btn-sm" onClick={copy}>Copiar</button>}
-      </div>
-      {body && <pre className="agent-result-body">{body}</pre>}
-      {status === 'done' && (
-        <p className="agent-result-hint">
-          Si está bien, muévela a Completada. Si necesita cambios, escribe tus comentarios en Feedback y muévela a Correcciones: el agente la rehace.
-        </p>
-      )}
-      {status === 'needs_info' && (
-        <p className="agent-result-hint">
-          Agrega lo que pide en la descripción o en Link de recursos y muévela a Correcciones para que la retome.
-        </p>
-      )}
     </div>
   )
 }

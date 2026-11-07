@@ -11,6 +11,7 @@ import KanbanView from './pages/KanbanView.jsx'
 import UsersAdmin from './pages/UsersAdmin.jsx'
 import ClientsAdmin from './pages/ClientsAdmin.jsx'
 import AgentsAdmin from './pages/AgentsAdmin.jsx'
+import AgenciaAdmin from './pages/AgenciaAdmin.jsx'
 import ProfilePage from './pages/ProfilePage.jsx'
 import PendingApproval from './pages/PendingApproval.jsx'
 import Header from './components/Header.jsx'
@@ -46,7 +47,11 @@ export default function App() {
   const [tasks, setTasks] = useState([])
   const [users, setUsers] = useState([])
   const [agents, setAgents] = useState([])
-  const [clients, setClients] = useState(DEFAULT_CLIENTS)
+  const [clientList, setClients] = useState(DEFAULT_CLIENTS) // config/clients (lista vieja de nombres)
+  const [clientDocs, setClientDocs] = useState([])            // clients/{id}: fichas de contexto
+  const [departments, setDepartments] = useState([])
+  const [taskTypes, setTaskTypes] = useState([])
+  const [providers, setProviders] = useState([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(null) // null hasta conocer el rol
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light')
@@ -108,7 +113,21 @@ export default function App() {
     const unsubAgents = onSnapshot(collection(db, 'agents'),
       (snap) => setAgents(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
       (err) => console.warn('agents:', err.code))
-    return () => { unsubTasks(); unsubUsers(); unsubClients(); unsubMyProfile(); unsubAgents() }
+    // Agencia: fichas de clientes, departamentos y tipos de tarea
+    const unsubClientDocs = onSnapshot(collection(db, 'clients'),
+      (snap) => setClientDocs(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      (err) => console.warn('clients:', err.code))
+    const unsubDepts = onSnapshot(collection(db, 'departments'),
+      (snap) => setDepartments(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.orden ?? 99) - (b.orden ?? 99))),
+      (err) => console.warn('departments:', err.code))
+    const unsubTypes = onSnapshot(collection(db, 'taskTypes'),
+      (snap) => setTaskTypes(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))),
+      (err) => console.warn('taskTypes:', err.code))
+    // Proveedores de modelos (sin claves: las claves viven en providerSecrets, que el navegador no puede leer)
+    const unsubProviders = onSnapshot(collection(db, 'providers'),
+      (snap) => setProviders(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))),
+      (err) => console.warn('providers:', err.code))
+    return () => { unsubTasks(); unsubUsers(); unsubClients(); unsubMyProfile(); unsubAgents(); unsubClientDocs(); unsubDepts(); unsubTypes(); unsubProviders() }
   }, [user])
 
   // Presencia + tiempo de conexión. Corre SOLO cuando el perfil ya existe,
@@ -264,9 +283,18 @@ export default function App() {
   // Modo "ver como empleado": el admin ve la plataforma sin privilegios
   const isAdmin = realIsAdmin && !viewAsEmployee
 
+  // Nombres de clientes: las fichas mandan; los nombres viejos sin ficha se siguen mostrando
+  const sortedClientDocs = [...clientDocs].sort((a, b) => (a.orden ?? 999) - (b.orden ?? 999) || (a.nombre || '').localeCompare(b.nombre || ''))
+  const conFicha = new Set(clientDocs.map(c => c.nombre))
+  const clients = [...new Set([
+    ...sortedClientDocs.filter(c => c.activo !== false).map(c => c.nombre),
+    ...clientList.filter(n => !conFicha.has(n)),
+  ])].filter(Boolean)
+
   const ctxValue = {
     user, userProfile, setUserProfile,
-    tasks, users, agents, clients, setClients,
+    tasks, users, agents, clients, clientList, setClients,
+    clientDocs: sortedClientDocs, departments, taskTypes, providers,
     isAdmin, realIsAdmin, isSuperAdmin,
     isManager: isAdmin && !isSuperAdmin,
     viewAsEmployee, setViewAsEmployee,
@@ -318,6 +346,7 @@ export default function App() {
             {page === 'users'     && isAdmin && isSuperAdmin && <UsersAdmin />}
             {page === 'clients'   && isAdmin && isSuperAdmin && <ClientsAdmin />}
             {page === 'agents'    && isAdmin && isSuperAdmin && <AgentsAdmin />}
+            {page === 'agencia'   && isAdmin && isSuperAdmin && <AgenciaAdmin />}
           </main>
         </div>
 

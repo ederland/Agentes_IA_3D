@@ -48,6 +48,8 @@
   "roles": {
     "coordinador": {
       "nombre": "Asistente personal y coordinador",
+      "departamento": "operaciones",
+      "modelo": {"recomendado": "claude", "requiereHerramientas": true, "nota": "Necesita herramientas: correo, calendario y delegar tareas."},
       "descripcion": "Habla contigo por Telegram, revisa tu correo y calendario, y reparte tareas entre los demás agentes.",
       "mision": "Asistente personal del dueño del negocio. Revisa correo y calendario, resume lo importante, deja borradores de respuesta y organiza al equipo: recibe pedidos y los reparte entre los agentes según su especialidad. Nunca envía correos ni publica nada.",
       "herramientas": ["web", "archivos", "skills", "drive_lectura", "gmail", "calendario"],
@@ -56,36 +58,48 @@
     },
     "copies_redes": {
       "nombre": "Copies para Instagram, Facebook y TikTok",
+      "departamento": "marketing",
+      "modelo": {"recomendado": "api", "requiereHerramientas": false, "nota": "Un modelo rápido de texto basta (Gemini Flash, DeepSeek, Llama en Groq). Claude si necesita investigar en la web."},
       "descripcion": "Captions, carruseles, ganchos y guiones cortos de reels.",
       "mision": "Especialista en copies para Instagram, Facebook y TikTok. Escribe captions, textos de carruseles lámina por lámina, ganchos y guiones cortos de reels. Tono cercano y directo, con un llamado a la acción claro. Entrega cada pieza lista para copiar, con 3 opciones de gancho.",
       "herramientas": ["web", "archivos", "skills", "drive_lectura"]
     },
     "copies_linkedin_x": {
       "nombre": "Estrategia y copies para LinkedIn y X",
+      "departamento": "marketing",
+      "modelo": {"recomendado": "api", "requiereHerramientas": false, "nota": "Un modelo rápido de texto basta. Claude si necesita investigar en la web."},
       "descripcion": "Marca personal, posts de autoridad e hilos.",
       "mision": "Especialista en marca personal y autoridad en LinkedIn y X. Diseña la estrategia de contenido y escribe posts, artículos cortos e hilos con ganchos fuertes y un llamado a la acción. Respeta el límite de caracteres de X.",
       "herramientas": ["web", "archivos", "skills", "drive_lectura"]
     },
     "estrategia": {
       "nombre": "Estrategia de marketing",
+      "departamento": "marketing",
+      "modelo": {"recomendado": "claude", "requiereHerramientas": false, "nota": "Mejor con Claude (investiga en la web). Un modelo de razonamiento (DeepSeek, Gemini Pro) sirve si le das el contexto."},
       "descripcion": "Diagnóstico, cliente ideal, oferta, embudo y plan.",
       "mision": "Estratega de marketing. Analiza al cliente, su mercado y su competencia, y entrega estrategias accionables: diagnóstico, cliente ideal, propuesta de valor, oferta, embudo de ventas, canales y plan con métricas. Deja indicaciones para los agentes de copies, video, imágenes y web.",
       "herramientas": ["web", "archivos", "skills", "drive_lectura"]
     },
     "lanzamientos": {
       "nombre": "Estrategia de lanzamientos",
+      "departamento": "marketing",
+      "modelo": {"recomendado": "claude", "requiereHerramientas": false, "nota": "Mejor con Claude. Un modelo de razonamiento sirve si el brief trae todo el contexto."},
       "descripcion": "Fases, cronograma y piezas para cada lanzamiento.",
       "mision": "Especialista en lanzamientos de productos, servicios, cursos y eventos. Diseña el plan completo: fases, calendario día por día, contenidos, secuencias de correos, evento en vivo, oferta y métricas. Indica qué pieza le toca a cada agente.",
       "herramientas": ["web", "archivos", "skills", "drive_lectura"]
     },
     "textos_seo": {
       "nombre": "Textos largos, SEO y blogs",
+      "departamento": "marketing",
+      "modelo": {"recomendado": "claude", "requiereHerramientas": false, "nota": "Claude investiga palabras clave y competencia en la web. Para redactar desde un brief completo sirve un modelo de texto."},
       "descripcion": "Artículos con SEO, textos web, emails y guiones de VSL.",
       "mision": "Especialista en SEO y redacción de textos largos. Investiga palabras clave y escribe artículos de blog optimizados (título SEO, meta descripción, estructura H1-H3), textos web por sección, secuencias de email y guiones de VSL.",
       "herramientas": ["web", "archivos", "skills", "drive_lectura"]
     },
     "diseno_web": {
       "nombre": "Diseño web y landing pages",
+      "departamento": "desarrollo",
+      "modelo": {"recomendado": "claude", "requiereHerramientas": true, "nota": "Necesita herramientas: guarda archivos HTML y usa skills de diseño."},
       "descripcion": "Landing pages en HTML listas para publicar, con tus sistemas de diseño.",
       "mision": "Diseñador y desarrollador web. Construye landing pages y páginas en un solo archivo HTML (CSS y JS incluidos), responsive y rápidas. Usa las skills de diseño instaladas y el sistema de diseño del cliente. Entrega el archivo .html.",
       "herramientas": ["web", "archivos", "skills", "drive_lectura", "entregas"],
@@ -94,6 +108,8 @@
     },
     "editor_video": {
       "nombre": "Edición de video",
+      "departamento": "marketing",
+      "modelo": {"recomendado": "claude", "requiereHerramientas": true, "nota": "Necesita herramientas: edita video con el servidor de medios."},
       "descripcion": "Limpia tus videos (silencios, tomas falsas, audio) y, si se lo pides, los anima con código.",
       "mision": "Editor de video. Por defecto limpia los videos: corta silencios, quita tomas falsas, repeticiones y muletillas y limpia el audio. Solo si la tarea lo pide agrega subtítulos, títulos y animaciones hechas con código (HyperFrames). Entrega el MP4 final.",
       "herramientas": ["archivos", "skills", "drive_lectura", "entregas", "editor_video"],
@@ -107,6 +123,8 @@
     },
     "imagenes": {
       "nombre": "Creación de imágenes",
+      "departamento": "marketing",
+      "modelo": {"recomendado": "claude", "requiereHerramientas": true, "nota": "Necesita herramientas: genera imágenes con Magnific."},
       "descripcion": "Posts, carruseles y creativos de anuncios con IA (requiere Magnific).",
       "mision": "Especialista en imágenes. Diseña y genera piezas visuales con IA: posts, portadas, banners y creativos de anuncios, respetando la identidad de la marca. Entrega las imágenes en JPG.",
       "herramientas": ["web", "archivos", "skills", "drive_lectura", "entregas", "magnific_imagenes"],
@@ -117,18 +135,32 @@
     },
     "automatizaciones": {
       "nombre": "Automatizaciones y funnels",
+      "departamento": "desarrollo",
+      "modelo": {"recomendado": "claude", "requiereHerramientas": false, "nota": "Mejor con Claude para diseñar flujos con documentación actual."},
       "descripcion": "Diseña flujos, embudos y secuencias para tu CRM (no modifica nada).",
       "mision": "Especialista en automatizaciones y funnels. Diseña flujos de trabajo, embudos, formularios y secuencias de seguimiento, y los documenta paso a paso para implementarlos. No modifica nada directamente.",
       "herramientas": ["web", "archivos", "skills", "drive_lectura"]
     },
     "investigacion": {
       "nombre": "Investigación y análisis",
+      "departamento": "operaciones",
+      "modelo": {"recomendado": "claude", "requiereHerramientas": true, "nota": "Necesita buscar en la web y citar fuentes."},
       "descripcion": "Investiga mercados, competencia y tendencias con fuentes.",
       "mision": "Investigador. Busca información actual en la web, compara fuentes y entrega informes claros con datos, conclusiones y links a las fuentes.",
       "herramientas": ["web", "archivos", "skills", "drive_lectura"]
     },
+    "revisor_calidad": {
+      "nombre": "Revisión de calidad",
+      "departamento": "operaciones",
+      "modelo": {"recomendado": "api", "requiereHerramientas": false, "nota": "Ideal para un modelo gratis o barato: solo compara la entrega con el brief."},
+      "descripcion": "Revisa las entregas de otros agentes contra el brief, los criterios de aceptación y la ficha del cliente.",
+      "mision": "Revisor de calidad. Compara cada entrega con el brief, los criterios de aceptación, el checklist del tipo de tarea y la ficha del cliente (tono, palabras sí y no, objetivos). Es exigente pero justo: solo marca observaciones concretas y accionables. No rehace el trabajo.",
+      "herramientas": ["archivos"],
+      "maxTurns": 15
+    },
     "personalizado": {
       "nombre": "Rol personalizado",
+      "modelo": {"recomendado": "claude", "requiereHerramientas": false, "nota": "Depende de lo que le pidas."},
       "descripcion": "Define tú la misión; tiene web, Drive (lectura) y skills.",
       "mision": "",
       "herramientas": ["web", "archivos", "skills", "drive_lectura"]

@@ -65,6 +65,35 @@ service cloud.firestore {
       allow write: if isAdmin() || (isAgentBot() && docId == 'agentWorker');
     }
 
+    // Agencia: fichas de clientes, departamentos y tipos de tarea.
+    // El equipo los lee; solo administradores los editan; el motor solo los lee
+    // (cada agente recibe únicamente la ficha del cliente de su tarea).
+    match /clients/{clientId} {
+      allow read: if isActiveUser() || isAgentBot();
+      allow write: if isAdmin();
+    }
+    match /departments/{deptId} {
+      allow read: if isActiveUser() || isAgentBot();
+      allow write: if isAdmin();
+    }
+    match /taskTypes/{typeId} {
+      allow read: if isActiveUser() || isAgentBot();
+      allow write: if isAdmin();
+    }
+
+    // Proveedores de modelos de IA (datos públicos). El motor solo escribe el resultado de "Probar conexión".
+    match /providers/{provId} {
+      allow read: if isActiveUser() || isAgentBot();
+      allow write: if isAdmin();
+      allow update: if isAgentBot()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['prueba', 'pruebaMensaje', 'pruebaFecha', 'modelosDisponibles']);
+    }
+    // Claves de API: el administrador las escribe pero NADIE las lee desde el navegador; solo el motor.
+    match /providerSecrets/{provId} {
+      allow read: if isAgentBot();
+      allow create, update, delete: if isAdmin();
+    }
+
     // Invitaciones: solo admins gestionan; el invitado necesita leer/borrar la suya al registrarse
     match /invites/{email} {
       allow read, delete: if isAuth();

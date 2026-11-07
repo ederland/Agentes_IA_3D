@@ -1727,3 +1727,11 @@ tbody tr:hover { background: var(--bg-2); }
 .agent-chat-input textarea { flex: 1; resize: none; border: 1px solid var(--border); border-radius: 12px; padding: 9px 11px; font: inherit; font-size: 13px; background: var(--bg-2); color: var(--text); max-height: 120px; field-sizing: content; }
 .agent-chat-input textarea:focus { outline: 2px solid var(--purple-mid); }
 @media (max-width: 760px) { .agent-chat { position: fixed; inset: auto 8px 8px 8px; top: 15vh; width: auto; z-index: 60; } }
+
+/* ===== Agencia: pestañas de fichas y revisión ===== */
+.tab-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.review-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 720px) { .review-grid { grid-template-columns: 1fr; } }
+.review-col { background: var(--bg-2); border-radius: 10px; padding: 12px 14px; font-size: 13px; min-width: 0; }
+.review-col pre { white-space: pre-wrap; word-break: break-word; font-family: inherit; margin: 0; max-height: 420px; overflow-y: auto; }
+.modal.modal-wide { max-width: 920px; }
