@@ -4,14 +4,15 @@ import { db } from '../firebase.js'
 import { doc, setDoc, deleteDoc, writeBatch, serverTimestamp } from 'firebase/firestore'
 import Icon from '../components/Icons.jsx'
 import CATALOGO from '../../../roles/catalogo.json'
-import { DEFAULT_DEPARTMENTS, EXAMPLE_TASK_TYPES, FIELD_TYPES, DELIVERY_FORMATS, slugify, toLines, fromLines } from '../agencia.js'
+import { DEFAULT_DEPARTMENTS, EXAMPLE_TASK_TYPES, FIELD_TYPES, DELIVERY_FORMATS, PROVIDER_PRESETS, slugify, toLines, fromLines } from '../agencia.js'
 
 // Agencia: departamentos y tipos de tarea (plantillas de brief con su checklist y su revisor)
 export default function AgenciaAdmin() {
-  const { departments, taskTypes, agents, showToast } = useApp()
+  const { departments, taskTypes, agents, providers, showToast } = useApp()
   const [tab, setTab] = useState('departamentos')
   const [editDept, setEditDept] = useState(null)
   const [editType, setEditType] = useState(null)
+  const [editProv, setEditProv] = useState(null)
 
   const seedDepartments = async () => {
     const batch = writeBatch(db)
@@ -53,6 +54,7 @@ export default function AgenciaAdmin() {
       <div className="tab-row" style={{ marginBottom: 18 }}>
         <button className={`btn btn-sm ${tab === 'departamentos' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('departamentos')}>Departamentos</button>
         <button className={`btn btn-sm ${tab === 'tipos' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('tipos')}>Tipos de tarea</button>
+        <button className={`btn btn-sm ${tab === 'modelos' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('modelos')}>Modelos de IA</button>
       </div>
 
       {tab === 'departamentos' && (
@@ -106,6 +108,41 @@ export default function AgenciaAdmin() {
         </div>
       )}
 
+      {tab === 'modelos' && (
+        <div className="card">
+          <p style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 0 }}>
+            Claude Code siempre está disponible. Aquí agregas otros modelos (solo texto, sin herramientas) para los agentes que no necesitan
+            buscar en la web ni manejar archivos. Las claves quedan guardadas en tu Firebase y <strong>nadie puede volver a leerlas desde el panel</strong>: solo el motor de tu PC.
+          </p>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            {PROVIDER_PRESETS.filter(p => !providers.some(x => x.id === p.id)).map(p => (
+              <button key={p.id} className="btn btn-secondary btn-sm" onClick={() => setEditProv({ ...p, nuevo: true })}>+ {p.nombre}</button>
+            ))}
+            <button className="btn btn-secondary btn-sm" onClick={() => setEditProv({ nuevo: true, modelos: [] })}>+ Otro (compatible con OpenAI)</button>
+          </div>
+          {providers.length === 0 && <p style={{ fontSize: 13, color: 'var(--text-3)' }}>Aún no hay modelos adicionales.</p>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {providers.map(p => (
+              <div key={p.id} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '10px 14px', background: 'var(--bg-2)', borderRadius: 10, opacity: p.activo === false ? 0.55 : 1 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <strong style={{ fontSize: 14 }}>{p.nombre}</strong>
+                  <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                    {p.tieneClave ? 'Clave guardada' : p.id === 'ollama' ? 'Sin clave (local)' : 'Sin clave'}
+                    {' · '}{(p.modelos || []).length} modelos
+                    {p.prueba === 'pendiente' && ' · probando… (el motor debe estar encendido)'}
+                    {p.prueba === 'ok' && <span style={{ color: 'var(--success)' }}> · conexión OK</span>}
+                    {p.prueba === 'error' && <span style={{ color: 'var(--danger)' }}> · error: {p.pruebaMensaje}</span>}
+                  </div>
+                </div>
+                <button className="btn btn-secondary btn-sm" onClick={() => setDoc(doc(db, 'providers', p.id), { prueba: 'pendiente' }, { merge: true })}>Probar conexión</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => setEditProv(p)}>Editar</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {editProv && <ProviderModal prov={editProv} onClose={() => setEditProv(null)} showToast={showToast} />}
       {editDept && <DeptModal dept={editDept} onClose={() => setEditDept(null)} showToast={showToast} />}
       {editType && <TypeModal type={editType} departments={departments} onClose={() => setEditType(null)} showToast={showToast} />}
     </div>
@@ -276,6 +313,91 @@ function TypeModal({ type, departments, onClose, showToast }) {
         </div>
         <div className="modal-footer">
           {type.id && <button className="btn btn-ghost" style={{ color: 'var(--danger)', marginRight: 'auto' }} onClick={remove}>Eliminar</button>}
+          <button className="btn btn-secondary" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-primary" onClick={save}>Guardar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Proveedor de modelos: los datos públicos van en providers/{id}; la clave, en providerSecrets/{id},
+// que las reglas dejan escribir a administradores pero solo leer al motor.
+function ProviderModal({ prov, onClose, showToast }) {
+  const [form, setForm] = useState({
+    nombre: prov.nombre || '', baseUrl: prov.baseUrl || '',
+    modelos: toLines(prov.modelos), apiKey: '', activo: prov.activo !== false,
+  })
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const disponibles = (prov.modelosDisponibles || []).filter(m => !fromLines(form.modelos).includes(m))
+
+  const save = async () => {
+    if (!form.nombre.trim() || !/^https?:\/\//.test(form.baseUrl.trim())) { showToast('Nombre y URL base (https://…) son obligatorios', 'error'); return }
+    const id = prov.id || slugify(form.nombre)
+    try {
+      if (form.apiKey.trim()) await setDoc(doc(db, 'providerSecrets', id), { apiKey: form.apiKey.trim(), updatedAt: serverTimestamp() })
+      await setDoc(doc(db, 'providers', id), {
+        nombre: form.nombre.trim(), baseUrl: form.baseUrl.trim().replace(/\/+$/, ''), modelos: fromLines(form.modelos),
+        activo: form.activo, ayuda: prov.ayuda || '',
+        tieneClave: !!(form.apiKey.trim() || prov.tieneClave),
+        ...(form.apiKey.trim() ? { prueba: 'pendiente' } : {}),
+      }, { merge: true })
+      showToast(form.apiKey.trim() ? 'Guardado. El motor está probando la conexión' : 'Guardado')
+      onClose()
+    } catch (e) {
+      console.error(e)
+      showToast('No se pudo guardar', 'error')
+    }
+  }
+  const remove = async () => {
+    if (!confirm(`¿Quitar ${prov.nombre}? Los agentes que lo usan vuelven a Claude Code.`)) return
+    await deleteDoc(doc(db, 'providerSecrets', prov.id)).catch(() => {})
+    await deleteDoc(doc(db, 'providers', prov.id))
+    onClose()
+  }
+  return (
+    <div className="modal-overlay">
+      <div className="modal">
+        <div className="modal-header">
+          <h2 className="modal-title">{prov.nuevo ? `Agregar ${prov.nombre || 'proveedor'}` : `Editar ${prov.nombre}`}</h2>
+          <button className="icon-btn" onClick={onClose}><Icon name="x" size={14} /></button>
+        </div>
+        {prov.ayuda && <p style={{ fontSize: 12.5, color: 'var(--text-3)', marginTop: -8 }}>{prov.ayuda}</p>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Nombre</label>
+              <input className="form-input" value={form.nombre} onChange={e => set('nombre', e.target.value)} disabled={!!prov.id && !prov.nuevo} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">URL base (compatible con OpenAI)</label>
+              <input className="form-input" value={form.baseUrl} onChange={e => set('baseUrl', e.target.value)} placeholder="https://…/v1" />
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Clave de API</label>
+            <input className="form-input" type="password" autoComplete="off" value={form.apiKey} onChange={e => set('apiKey', e.target.value)}
+              placeholder={prov.tieneClave ? 'Guardada. Escribe una nueva solo para reemplazarla' : 'Pega aquí la clave'} />
+            <span style={{ fontSize: 11, color: 'var(--text-3)' }}>Después de guardarla no se puede volver a ver; solo reemplazar.</span>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Modelos que ofreces a los agentes</label>
+            <textarea className="form-textarea" rows={3} value={form.modelos} onChange={e => set('modelos', e.target.value)} placeholder="Uno por línea" />
+            {disponibles.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6, maxHeight: 120, overflowY: 'auto' }}>
+                {disponibles.slice(0, 60).map(m => (
+                  <button key={m} type="button" className="btn btn-ghost btn-sm" style={{ fontSize: 11 }}
+                    onClick={() => set('modelos', [...fromLines(form.modelos), m].join('\n'))}>+ {m}</button>
+                ))}
+              </div>
+            )}
+          </div>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+            <input type="checkbox" checked={form.activo} onChange={e => set('activo', e.target.checked)} /> Activo
+          </label>
+        </div>
+        <div className="modal-footer">
+          {prov.id && !prov.nuevo && <button className="btn btn-ghost" style={{ color: 'var(--danger)', marginRight: 'auto' }} onClick={remove}>Quitar</button>}
           <button className="btn btn-secondary" onClick={onClose}>Cancelar</button>
           <button className="btn btn-primary" onClick={save}>Guardar</button>
         </div>

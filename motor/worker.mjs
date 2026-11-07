@@ -85,14 +85,32 @@ let telegram = null
 const clientsById = new Map()
 const taskTypesById = new Map()
 const departmentsById = new Map()
+const providersById = new Map()   // proveedores de modelos (datos públicos; la clave se lee aparte)
 let running = null        // id de la tarea en ejecución
 let busyWith = ''
 let stopping = false
 
 const heartbeat = (extra = {}) =>
   setDoc(doc(db, 'config', 'agentWorker'), {
-    online: !stopping, lastSeen: serverTimestamp(), host: os.hostname(), busyWith, ...extra,
+    online: !stopping, lastSeen: serverTimestamp(), host: os.hostname(), busyWith, skills: installedSkills(), ...extra,
   }, { merge: true }).then(() => true, e => { log('No pude actualizar el latido:', e.code || e.message); return false })
+
+// Skills de Claude Code instaladas en este PC (las del motor y las del usuario), para el panel
+function installedSkills() {
+  const out = new Map()
+  for (const dir of [join(ROOT, '.claude', 'skills'), join(os.homedir(), '.claude', 'skills')]) {
+    let names = []
+    try { names = readdirSync(dir) } catch { continue }
+    for (const name of names) {
+      const file = join(dir, name, 'SKILL.md')
+      if (out.has(name) || !existsSync(file)) continue
+      const head = (() => { try { return readFileSync(file, 'utf8').slice(0, 1500) } catch { return '' } })()
+      const descripcion = (head.match(/^description:\s*(.+)$/m)?.[1] || '').replace(/^["']|["']$/g, '').slice(0, 200)
+      out.set(name, { nombre: name, descripcion })
+    }
+  }
+  return [...out.values()].slice(0, 80)
+}
 
 // ---------- qué tareas toma el motor ----------
 function eligible(t) {
@@ -148,6 +166,7 @@ function toolsFor(agent) {
   const list = new Set()
   for (const g of p.herramientas || ['web', 'archivos', 'skills']) for (const t of groups[g] || [g]) list.add(t)
   for (const t of p.herramientasExtra || []) list.add(t)
+  if (lista(agent?.skills).length) list.add('Skill')
   if (folderFor(agent)) for (const t of groups.drive_crear || []) list.add(t)
   return [...list]
 }
@@ -429,6 +448,9 @@ function buildPrompt(agent, t, { adjuntos, observaciones } = {}) {
   const ejemplos = lista(agent.ejemplos).filter(e => e.texto).slice(0, 3)
   if (ejemplos.length) lines.push('\n## Ejemplos de trabajo que le gustaron a ' + OWNER + ' (imita el nivel, no copies el contenido)',
     ...ejemplos.map(e => `### ${e.titulo || 'Ejemplo'}\n${String(e.texto).slice(0, 3000)}`))
+  const lecciones = lista(agent.aprendizajes).slice(-10)
+  if (lecciones.length) lines.push('\n## Lecciones de correcciones anteriores (aplícalas siempre)', ...lecciones.map(a => `- ${a.texto}`))
+  if (lista(agent.skills).length && !usaApi(agent, t)) lines.push(`\n## Skills\nCuando apliquen, usa estas skills con la herramienta Skill: ${agent.skills.join(', ')}.`)
   // Sistemas de diseño por cliente (negocio.json → agentes[id].sistemasPorCliente)
   const sistemas = perfil?.sistemasPorCliente
   if (sistemas) {
@@ -469,36 +491,87 @@ function runClaude(prompt, cwd, { tools = BASE_TOOLS, resume, agentName, maxTurn
   })
 }
 
-// ---------- Modelo alterno (API compatible con OpenAI: Gemini, OpenRouter, Groq, Ollama…) ----------
-// Solo texto: no tiene herramientas (ni web ni archivos). Se configura en motor/.env:
-// ALT_LLM_BASE_URL, ALT_LLM_API_KEY (vacía para Ollama) y ALT_LLM_MODEL (modelo por defecto).
-const usaAlterno = (agent) => agent?.modelo?.proveedor === 'alterno'
+// ---------- Otros modelos (API compatible con OpenAI: Gemini, Groq, DeepSeek, xAI, OpenRouter, Ollama…) ----------
+// Solo texto, sin herramientas. Proveedores y modelos se configuran en el panel (Agencia → Modelos de IA);
+// la clave vive en providerSecrets/{id}, que solo el motor puede leer. Compatibilidad: modelo.proveedor
+// 'alterno' usa ALT_LLM_BASE_URL / ALT_LLM_API_KEY / ALT_LLM_MODEL de motor/.env.
+const secretCache = new Map() // id -> { apiKey, at }
+async function providerKey(id) {
+  const c = secretCache.get(id)
+  if (c && Date.now() - c.at < 5 * 60 * 1000) return c.apiKey
+  let apiKey = ''
+  try { apiKey = (await getDoc(doc(db, 'providerSecrets', id))).data()?.apiKey || '' } catch (e) { log(`No pude leer la clave de ${id}:`, e.code || e.message) }
+  secretCache.set(id, { apiKey, at: Date.now() })
+  return apiKey
+}
 
-async function runAlt(prompt, model) {
-  const base = (env.ALT_LLM_BASE_URL || '').replace(/\/+$/, '')
-  model = model || env.ALT_LLM_MODEL
-  if (!base || !model) return { code: 1, json: null, err: 'Modelo alterno sin configurar: faltan ALT_LLM_BASE_URL o ALT_LLM_MODEL en motor/.env' }
+// Tareas que necesitan herramientas siempre van con Claude Code, aunque el agente tenga otro modelo
+function needsTools(agent, t) {
+  if (perfilDe(agent).modelo?.requiereHerramientas) return true
+  const tipo = t && taskTypesById.get(t.tipoTareaId)
+  return ['video', 'dev', 'qa', 'seguridad'].includes(tipo?.capacidad) || ['archivos', 'video', 'pr'].includes(tipo?.formatoEntrega)
+}
+function usaApi(agent, t) {
+  const m = agent?.modelo
+  if (!m || m.proveedor === 'claude' || needsTools(agent, t)) return false
+  if (m.proveedor === 'alterno') return true
+  return m.proveedor === 'api' && providersById.get(m.proveedorId)?.activo !== false && providersById.has(m.proveedorId)
+}
+
+async function apiConfigFor(agent) {
+  const m = agent.modelo
+  if (m.proveedor === 'alterno') return { baseUrl: env.ALT_LLM_BASE_URL, apiKey: env.ALT_LLM_API_KEY, model: m.nombre || env.ALT_LLM_MODEL, nombre: 'motor/.env' }
+  const p = providersById.get(m.proveedorId)
+  return { baseUrl: p.baseUrl, apiKey: await providerKey(p.id), model: m.nombre || p.modelos?.[0], nombre: p.nombre }
+}
+
+async function runApi({ baseUrl, apiKey, model, nombre }, prompt) {
+  const base = (baseUrl || '').replace(/\/+$/, '')
+  if (!base || !model) return { code: 1, json: null, err: `${nombre}: falta la URL base o el modelo` }
   let reglas = ''
   try { reglas = readFileSync(join(ROOT, 'CLAUDE.md'), 'utf8') } catch {}
   try {
     const r = await fetch(`${base}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(env.ALT_LLM_API_KEY ? { Authorization: `Bearer ${env.ALT_LLM_API_KEY}` } : {}) },
+      headers: { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
       body: JSON.stringify({ model, messages: [{ role: 'system', content: reglas }, { role: 'user', content: prompt }] }),
       signal: AbortSignal.timeout(10 * 60 * 1000),
     })
     const data = await r.json().catch(() => null)
     const text = data?.choices?.[0]?.message?.content
-    if (!r.ok || !text) return { code: 1, json: null, err: `Modelo alterno (${model}): ${data?.error?.message || r.status}` }
-    return { code: 0, json: { result: text, total_cost_usd: 0, num_turns: 1, modelo: model }, err: '' }
+    if (!r.ok || !text) return { code: 1, json: null, err: `${nombre} (${model}): ${data?.error?.message || data?.message || 'HTTP ' + r.status}` }
+    return { code: 0, json: { result: text, total_cost_usd: 0, num_turns: 1, modelo: `${nombre}/${model}` }, err: '' }
   } catch (e) {
-    return { code: 1, json: null, err: `Modelo alterno (${model}): ${e.message}` }
+    return { code: 1, json: null, err: `${nombre} (${model}): ${e.message}` }
   }
 }
 
-// Ejecuta con el modelo del agente: Claude Code por defecto, o el alterno si así está configurado
-function runModel(agent, prompt, cwd, opts) {
-  return usaAlterno(agent) ? runAlt(prompt, agent.modelo?.nombre) : runClaude(prompt, cwd, opts)
+// Ejecuta con el modelo del agente: Claude Code por defecto, otro modelo si así está configurado y la tarea lo permite
+async function runModel(agent, prompt, cwd, opts, t) {
+  if (!usaApi(agent, t)) return runClaude(prompt, cwd, opts)
+  const cfg = await apiConfigFor(agent)
+  log(`  (modelo: ${cfg.nombre} / ${cfg.model})`)
+  return runApi(cfg, prompt)
+}
+
+// "Probar conexión" del panel: lista los modelos del proveedor con su clave
+async function testProvider(p) {
+  const ref = doc(db, 'providers', p.id)
+  secretCache.delete(p.id)
+  try {
+    const apiKey = await providerKey(p.id)
+    const r = await fetch(`${(p.baseUrl || '').replace(/\/+$/, '')}/models`, {
+      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {}, signal: AbortSignal.timeout(20000),
+    })
+    const data = await r.json().catch(() => null)
+    if (!r.ok) throw new Error(data?.error?.message || data?.message || `HTTP ${r.status}`)
+    const ids = lista(data?.data || data?.models).map(m => String(m.id || m.name || '').replace(/^models\//, '')).filter(Boolean)
+    await updateDoc(ref, { prueba: 'ok', pruebaMensaje: '', modelosDisponibles: ids.slice(0, 200), pruebaFecha: new Date().toISOString() })
+    log(`✔ Proveedor ${p.nombre}: conexión OK (${ids.length} modelos)`)
+  } catch (e) {
+    await updateDoc(ref, { prueba: 'error', pruebaMensaje: String(e.message).slice(0, 300), pruebaFecha: new Date().toISOString() }).catch(() => {})
+    log(`✖ Proveedor ${p.nombre}: ${e.message}`)
+  }
 }
 
 const maxTurnsFor = (agent) => Number(agent?.presupuesto?.maxTurnos) || perfilDe(agent).maxTurns || 40
@@ -527,7 +600,7 @@ async function reviewDelivery(reviewer, t, entrega, cwd) {
     'Usa "ok" si cumple los criterios. Usa "observaciones" solo si hay problemas reales.',
   ].filter(Boolean).join('\n')
   writeFileSync(join(cwd, 'revision.md'), prompt)
-  const res = await runModel(reviewer, prompt, cwd, { tools: ['Read', 'Glob', 'Grep'], agentName: deliveryName(reviewer), maxTurns: maxTurnsFor(reviewer) })
+  const res = await runModel(reviewer, prompt, cwd, { tools: ['Read', 'Glob', 'Grep'], agentName: deliveryName(reviewer), maxTurns: maxTurnsFor(reviewer) }, null)
   const parsed = res.code === 0 && res.json?.result ? parseReview(res.json.result) : null
   return { parsed, cost: res.json?.total_cost_usd || 0, turns: res.json?.num_turns || 0 }
 }
@@ -655,7 +728,7 @@ async function runTask(t) {
   writeFileSync(join(cwd, 'tarea.md'), prompt)
 
   const opts = { tools: toolsFor(agent), agentName: deliveryName(agent), maxTurns: maxTurnsFor(agent) }
-  const res = await runModel(agent, prompt, cwd, opts)
+  const res = await runModel(agent, prompt, cwd, opts, t)
   let extraCost = 0, extraTurns = 0
   const seconds = Math.round((Date.now() - started) / 1000)
   let result = (res.json?.result || '').trim()
@@ -708,7 +781,7 @@ async function runTask(t) {
       log(`↻ ${agent.name} corrige "${t.tarea}" (${r1.parsed.notas.length} observaciones)`)
       await updateDoc(ref, { agentStatus: 'running' }).catch(() => {})
       const p2 = buildPrompt(agent, t, { adjuntos, observaciones: { notas: r1.parsed.notas, entrega: result } })
-      const res2 = await runModel(agent, p2, cwd, opts)
+      const res2 = await runModel(agent, p2, cwd, opts, t)
       extraCost += res2.json?.total_cost_usd || 0; extraTurns += res2.json?.num_turns || 0
       const r2text = (res2.json?.result || '').trim()
       if (res2.code === 0 && r2text && !/^NECESITO:/i.test(r2text)) { result = r2text; corregida = true }
@@ -991,6 +1064,10 @@ async function main() {
   mirror('clients', clientsById)
   mirror('taskTypes', taskTypesById)
   mirror('departments', departmentsById)
+  mirror('providers', providersById)
+  onSnapshot(query(collection(db, 'providers'), where('prueba', '==', 'pendiente')), snap => {
+    snap.forEach(d => testProvider({ id: d.id, ...d.data() }))
+  }, e => log('Error leyendo proveedores:', e.code || e.message))
 
   // Entregas aprobadas: copiar la última versión a <Cliente>/Aprobados
   onSnapshot(query(collection(db, 'tasks'), where('driveSync', '==', 'pendiente')), snap => {

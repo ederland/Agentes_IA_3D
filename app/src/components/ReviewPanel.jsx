@@ -7,12 +7,13 @@ import { doc, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore'
 // y las decisiones del equipo (Aprobar / Corregir / Rechazar). Las correcciones pueden quedar
 // como aprendizaje en la ficha del cliente.
 export default function ReviewPanel({ task, onDone }) {
-  const { user, userProfile, isAdmin, showToast, clientDocs, taskTypes } = useApp()
+  const { user, userProfile, isAdmin, showToast, clientDocs, taskTypes, agents } = useApp()
   const versiones = task.versiones || []
   const [verIdx, setVerIdx] = useState(versiones.length ? versiones.length - 1 : -1)
   const [mode, setMode] = useState(null) // 'corregir' | 'rechazar'
   const [nota, setNota] = useState('')
   const [guardarAprendizaje, setGuardarAprendizaje] = useState(true)
+  const [leccionAgente, setLeccionAgente] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const status = task.agentStatus
@@ -31,6 +32,7 @@ export default function ReviewPanel({ task, onDone }) {
   const body = status === 'needs_info' ? task.agentQuestion : status === 'error' ? task.agentError : showing
   const cliente = clientDocs.find(c => c.id === task.clienteId) || clientDocs.find(c => c.nombre === task.cliente)
   const tipo = taskTypes.find(t => t.id === task.tipoTareaId)
+  const agente = agents.find(a => a.id === task.asignado)
   const rev = task.revisionAgente
   const canDecide = isAdmin && task.estado === 'en_espera' && status === 'done'
 
@@ -72,6 +74,11 @@ export default function ReviewPanel({ task, onDone }) {
       })
       if (guardarAprendizaje && cliente) {
         await updateDoc(doc(db, 'clients', cliente.id), {
+          aprendizajes: arrayUnion({ texto, origenTaskId: task.id, fecha: new Date().toISOString() }),
+        })
+      }
+      if (leccionAgente && agente) {
+        await updateDoc(doc(db, 'agents', agente.id), {
           aprendizajes: arrayUnion({ texto, origenTaskId: task.id, fecha: new Date().toISOString() }),
         })
       }
@@ -150,6 +157,12 @@ export default function ReviewPanel({ task, onDone }) {
             <label style={{ fontSize: 12.5, display: 'flex', gap: 6, alignItems: 'center' }}>
               <input type="checkbox" checked={guardarAprendizaje} onChange={e => setGuardarAprendizaje(e.target.checked)} />
               Guardar como aprendizaje de {cliente.nombre} (desmarca si es solo para esta tarea)
+            </label>
+          )}
+          {agente && (
+            <label style={{ fontSize: 12.5, display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input type="checkbox" checked={leccionAgente} onChange={e => setLeccionAgente(e.target.checked)} />
+              Guardar como lección de {agente.name} (aplica a todos sus clientes)
             </label>
           )}
           <div style={{ display: 'flex', gap: 8 }}>

@@ -19,8 +19,13 @@ Proyecto de código abierto: una oficina 3D con agentes de IA para cualquier neg
 - Versiones y Drive: cada entrega queda en `<agenciaDrive>/<Cliente>/<Departamento>/<fecha tarea>/v<n>/` y al aprobar
   se copia a `<Cliente>/Aprobados/`. `agenciaDrive` (carpeta sincronizada con Google Drive) y `rcloneRemote` van en
   `motor/media-config.json`; sin configurar, todo queda en `motor/agencia/`.
-- Modelo alterno: un agente con `modelo.proveedor = 'alterno'` usa una API compatible con OpenAI (`ALT_LLM_*` en
-  `motor/.env`), solo texto y sin herramientas.
+- Modelos de IA: Claude Code por defecto. En Agencia → Modelos de IA se agregan proveedores con API compatible con
+  OpenAI (`providers/{id}`); la clave va en `providerSecrets/{id}`, que el panel escribe pero solo el motor lee.
+  Un agente con `modelo = { proveedor: 'api', proveedorId, nombre }` usa ese modelo (solo texto). Los roles con
+  `modelo.requiereHerramientas` y los tipos de tarea de video/archivos/código siempre van con Claude Code.
+  `modelo.proveedor = 'alterno'` usa `ALT_LLM_*` de `motor/.env`.
+- Skills por agente (`agents.skills`): el motor publica las skills instaladas en `config/agentWorker.skills`.
+  Lecciones por agente (`agents.aprendizajes`) y por cliente (`clients.aprendizajes`) se agregan desde la revisión.
 - `firestore.rules` — reglas de seguridad. `tools/configurar.mjs` las personaliza.
 - `.claude/skills/instalar/` — asistente de instalación.
 

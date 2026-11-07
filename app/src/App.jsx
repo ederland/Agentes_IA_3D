@@ -51,6 +51,7 @@ export default function App() {
   const [clientDocs, setClientDocs] = useState([])            // clients/{id}: fichas de contexto
   const [departments, setDepartments] = useState([])
   const [taskTypes, setTaskTypes] = useState([])
+  const [providers, setProviders] = useState([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(null) // null hasta conocer el rol
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light')
@@ -122,7 +123,11 @@ export default function App() {
     const unsubTypes = onSnapshot(collection(db, 'taskTypes'),
       (snap) => setTaskTypes(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))),
       (err) => console.warn('taskTypes:', err.code))
-    return () => { unsubTasks(); unsubUsers(); unsubClients(); unsubMyProfile(); unsubAgents(); unsubClientDocs(); unsubDepts(); unsubTypes() }
+    // Proveedores de modelos (sin claves: las claves viven en providerSecrets, que el navegador no puede leer)
+    const unsubProviders = onSnapshot(collection(db, 'providers'),
+      (snap) => setProviders(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))),
+      (err) => console.warn('providers:', err.code))
+    return () => { unsubTasks(); unsubUsers(); unsubClients(); unsubMyProfile(); unsubAgents(); unsubClientDocs(); unsubDepts(); unsubTypes(); unsubProviders() }
   }, [user])
 
   // Presencia + tiempo de conexión. Corre SOLO cuando el perfil ya existe,
@@ -289,7 +294,7 @@ export default function App() {
   const ctxValue = {
     user, userProfile, setUserProfile,
     tasks, users, agents, clients, clientList, setClients,
-    clientDocs: sortedClientDocs, departments, taskTypes,
+    clientDocs: sortedClientDocs, departments, taskTypes, providers,
     isAdmin, realIsAdmin, isSuperAdmin,
     isManager: isAdmin && !isSuperAdmin,
     viewAsEmployee, setViewAsEmployee,
