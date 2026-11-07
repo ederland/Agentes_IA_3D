@@ -111,11 +111,12 @@ export const fromLines = (s) => String(s || '').split('\n').map(x => x.trim()).f
 // Proveedores de modelos con API compatible con OpenAI. Los nombres de modelos cambian seguido:
 // son sugerencias; "Probar conexión" trae la lista real desde el proveedor.
 export const PROVIDER_PRESETS = [
-  { id: 'gemini', nombre: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', modelos: ['gemini-2.5-flash', 'gemini-2.5-pro'], ayuda: 'Clave gratis en aistudio.google.com. El plan gratis puede usar tus datos para mejorar sus productos.' },
-  { id: 'groq', nombre: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', modelos: ['llama-3.3-70b-versatile'], ayuda: 'Clave en console.groq.com. Muy rápido, con plan gratis limitado.' },
+  { id: 'gemini', nombre: 'Google Gemini', gratis: true, baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', modelos: ['gemini-2.5-flash', 'gemini-2.5-pro'], ayuda: 'Clave gratis en aistudio.google.com. El plan gratis puede usar tus datos para mejorar sus productos.' },
+  { id: 'groq', nombre: 'Groq', gratis: true, baseUrl: 'https://api.groq.com/openai/v1', modelos: ['llama-3.3-70b-versatile'], ayuda: 'Clave en console.groq.com. Muy rápido, con plan gratis limitado.' },
+  { id: 'cerebras', nombre: 'Cerebras', gratis: true, baseUrl: 'https://api.cerebras.ai/v1', modelos: [], ayuda: 'Clave gratis en cloud.cerebras.ai. Usa "Probar conexión" para ver los modelos.' },
   { id: 'deepseek', nombre: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', modelos: ['deepseek-chat', 'deepseek-reasoner'], ayuda: 'Clave en platform.deepseek.com. De pago, muy barato.' },
   { id: 'xai', nombre: 'xAI (Grok)', baseUrl: 'https://api.x.ai/v1', modelos: [], ayuda: 'Clave en console.x.ai. Usa "Probar conexión" para ver los modelos.' },
-  { id: 'openrouter', nombre: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', modelos: [], ayuda: 'Una clave para muchos modelos; los que terminan en ":free" son gratis.' },
+  { id: 'openrouter', nombre: 'OpenRouter', gratis: true, baseUrl: 'https://openrouter.ai/api/v1', modelos: [], ayuda: 'Una clave para muchos modelos; los que terminan en ":free" son gratis. Límites actuales de cada proveedor gratis: github.com/cheahjs/free-llm-api-resources' },
   { id: 'ollama', nombre: 'Ollama (en tu PC)', baseUrl: 'http://localhost:11434/v1', modelos: [], ayuda: 'Modelos locales: no sale nada de tu PC. No necesita clave.' },
 ]
 

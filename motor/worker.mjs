@@ -16,6 +16,7 @@ import {
 import { startTelegram } from './telegram.mjs'
 import { crearSkills } from './skills.mjs'
 import { crearEntregables } from './entregables.mjs'
+import { crearMotores } from './motores.mjs'
 import { proximaEjecucion, describirRegla, reglaValida, diasDesdeTexto, tituloConFecha, fechaLocal } from './programadas.mjs'
 import { lista, safeName, clientContext, briefSection as briefPuro, parseReview, permisosDeTarea as permisosPuro } from './agencia.mjs'
 import { spawn } from 'node:child_process'
@@ -90,13 +91,17 @@ const taskTypesById = new Map()
 const departmentsById = new Map()
 const providersById = new Map()
 const schedulesById = new Map()   // tareas programadas (colección schedules)   // proveedores de modelos (datos públicos; la clave se lee aparte)
-let running = null        // id de la tarea en ejecución
-let busyWith = ''
+// Tareas en curso (pueden ser varias: una por agente y con cupos por motor, negocio.json → paralelo)
+const enCurso = new Map() // taskId -> { motor, agentId, tarea }
+let chatOcupado = ''      // conversación del coordinador o un chat en curso
+const ocupadoCon = () => [chatOcupado, ...[...enCurso.values()].map(x => x.tarea)].filter(Boolean).join(' · ')
+let estadoMotores = { codex: null, gemini: null, antigravity: null }
 let stopping = false
 
 const heartbeat = (extra = {}) =>
   setDoc(doc(db, 'config', 'agentWorker'), {
-    online: !stopping, lastSeen: serverTimestamp(), host: os.hostname(), busyWith, skills: installedSkills(),
+    online: !stopping, lastSeen: serverTimestamp(), host: os.hostname(), busyWith: ocupadoCon(), skills: installedSkills(),
+    motores: estadoMotores, enCurso: [...enCurso.values()].map(x => ({ tarea: x.tarea, motor: x.motor })),
     fuentesSkills: skillsMgr.fuentes(), ...extra,
   }, { merge: true }).then(() => true, e => { log('No pude actualizar el latido:', e.code || e.message); return false })
 
@@ -192,22 +197,32 @@ function eligible(t) {
   if (t.pendingAcceptance) return false
   if (t.estado === 'pendiente' || t.estado === 'en_revision') return true
   // En progreso: la retoma si quedó a medias (PC apagado) y nadie la pausó
-  if (t.estado === 'en_progreso') return !t.timerPaused && t.id !== running
+  if (t.estado === 'en_progreso') return !t.timerPaused && !enCurso.has(t.id)
   return false
 }
 
-function nextTask() {
+function candidatas() {
   return [...tasks.values()]
-    .filter(t => t.id !== running && eligible(t))
+    .filter(t => !enCurso.has(t.id) && eligible(t))
     .sort((a, b) =>
       (PRIORITY[a.prioridad] ?? 2) - (PRIORITY[b.prioridad] ?? 2) ||
-      (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0))[0]
+      (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0))
 }
 
+// Llena los cupos libres: máximo una tarea por agente y N por motor (negocio.json → paralelo)
 function pump() {
-  if (running || stopping) return
-  const t = nextTask()
-  if (t) runTask(t).finally(() => { running = null; busyWith = ''; heartbeat(); setTimeout(pump, 1500) })
+  if (stopping) return
+  const cupos = { claude: 1, antigravity: 1, codex: 1, gemini: 1, api: 2, ...(loadNegocio().paralelo || {}) }
+  const usados = (m) => [...enCurso.values()].filter(x => x.motor === m).length
+  for (const t of candidatas()) {
+    const agent = agents.get(t.asignado)
+    if (!agent || [...enCurso.values()].some(x => x.agentId === agent.id)) continue
+    const motor = motorDe(agent, t)
+    if (usados(motor) >= (Number(cupos[motor]) || 1)) continue
+    enCurso.set(t.id, { motor, agentId: agent.id, tarea: t.tarea })
+    runTask(t).catch(e => log('✖ Error inesperado en la tarea:', e.message))
+      .finally(() => { enCurso.delete(t.id); heartbeat(); setTimeout(pump, 1500) })
+  }
 }
 
 // ---------- Roles: qué sabe hacer cada agente ----------
@@ -726,7 +741,10 @@ function usaApi(agent, t) {
   const m = agent?.modelo
   if (!m || m.proveedor === 'claude' || needsTools(agent, t)) return false
   if (m.proveedor === 'alterno') return true
-  return m.proveedor === 'api' && providersById.get(m.proveedorId)?.activo !== false && providersById.has(m.proveedorId)
+  const prov = providersById.get(m.proveedorId)
+  // Proveedor gratis (puede entrenar con los datos): solo tareas internas o de clientes con permiso
+  if (prov?.gratis && t && !permiteGratis(t)) return false
+  return m.proveedor === 'api' && prov?.activo !== false && providersById.has(m.proveedorId)
 }
 
 async function apiConfigFor(agent) {
@@ -758,11 +776,86 @@ async function runApi({ baseUrl, apiKey, model, nombre }, prompt) {
 }
 
 // Ejecuta con el modelo del agente: Claude Code por defecto, otro modelo si así está configurado y la tarea lo permite
+// ---------- Motores: Claude Code, Codex (ChatGPT), Gemini CLI y modelos por API ----------
+const motoresMgr = crearMotores({ ROOT, log: (...a) => log(...a), timeoutMs: RUN_TIMEOUT_MS })
+const MOTORES_CLI = ['claude', 'antigravity', 'codex', 'gemini']
+async function actualizarEstadoMotores() {
+  const [codex, antigravity] = await Promise.all([motoresMgr.estadoCodex(), motoresMgr.estadoAntigravity()])
+  estadoMotores = { codex, gemini: motoresMgr.estadoGemini(env), antigravity }
+}
+// Reglas de motor/CLAUDE.md: Claude Code las lee solo; a Codex y Gemini se las damos en la instrucción
+const reglasAgentes = () => { try { return readFileSync(join(ROOT, 'CLAUDE.md'), 'utf8') } catch { return '' } }
+
+// Motor principal del agente para esta tarea
+function motorDe(agent, t) {
+  const p = agent?.modelo?.proveedor
+  if (p === 'codex' || p === 'gemini' || p === 'antigravity') return p
+  return usaApi(agent, t) ? 'api' : 'claude'
+}
+// Herramientas que solo existen en Claude Code (servidores MCP: medios, video, Magnific, Gmail, Drive…)
+// (Leer Drive no cuenta: es opcional y Codex/Gemini trabajan sin él)
+const GRUPOS_SOLO_CLAUDE = ['entregas', 'editor_video', 'magnific_imagenes', 'gmail', 'calendario', 'drive_crear']
+function soloClaude(agent, t) {
+  const p = perfilDe(agent)
+  const grupos = [...lista(p.herramientas), ...permisosDeTarea(t, p._cat.herramientas || {})]
+  return grupos.some(g => GRUPOS_SOLO_CLAUDE.includes(g)) || lista(p.herramientasExtra).some(x => String(x).startsWith('mcp__'))
+}
+// ¿Puede ir a un motor gratis (que puede entrenar con los datos)? Solo tareas internas o clientes con permiso
+function permiteGratis(t) {
+  const c = t && clientFor(t)
+  return !c || c.permiteModelosGratis === true
+}
+function motorDisponible(m, agent, t) {
+  if (m === 'claude') return true
+  if (m === 'codex') return !!estadoMotores.codex?.conectado && !soloClaude(agent, t)
+  if (m === 'antigravity') return !!estadoMotores.antigravity?.conectado && !soloClaude(agent, t)
+  if (m === 'gemini') return !!estadoMotores.gemini?.conectado && !soloClaude(agent, t) && (loadNegocio().geminiDePago === true || permiteGratis(t))
+  return false
+}
+
+async function correrMotor(m, agent, prompt, cwd, opts, t) {
+  if (m === 'claude') {
+    const r = await runClaude(prompt, cwd, opts)
+    const texto = `${r.err}\n${r.json?.result || ''}`
+    return { ...r, limite: (r.code !== 0 || r.json?.is_error) && motoresMgr.esLimite(texto) }
+  }
+  // Codex y Gemini: reglas de los agentes + reglas de archivos en la misma instrucción
+  const completo = [reglasAgentes(), prompt, prompt.includes('## Archivos entregables') ? '' : SALIDA_RULES].filter(Boolean).join('\n\n')
+  const web = toolsFor(agent, t).includes('WebSearch')
+  if (m === 'antigravity') {
+    // Modelo elegido en el agente si es de Antigravity; si no, el que tenga por defecto
+    const modelo = agent?.modelo?.proveedor === 'antigravity' ? agent.modelo.nombre : (loadNegocio().modeloAntigravity || '')
+    return motoresMgr.antigravity(completo, cwd, { modelo })
+  }
+  return m === 'codex'
+    ? motoresMgr.codex(completo, cwd, { web })
+    : motoresMgr.gemini(completo, cwd, { env: env.GEMINI_API_KEY ? { GEMINI_API_KEY: env.GEMINI_API_KEY } : {} })
+}
+
 async function runModel(agent, prompt, cwd, opts, t) {
-  if (!usaApi(agent, t)) return runClaude(prompt, cwd, opts)
-  const cfg = await apiConfigFor(agent)
-  log(`  (modelo: ${cfg.nombre} / ${cfg.model})`)
-  return runApi(cfg, prompt)
+  const principal = motorDe(agent, t)
+  if (principal === 'api') {
+    const cfg = await apiConfigFor(agent)
+    log(`  (modelo: ${cfg.nombre} / ${cfg.model})`)
+    return { ...(await runApi(cfg, prompt)), motor: 'api' }
+  }
+  // Principal y después los de respaldo (negocio.json → respaldo), solo si están conectados y sirven para la tarea
+  const respaldo = lista(loadNegocio().respaldo).length ? lista(loadNegocio().respaldo) : MOTORES_CLI
+  const cadena = [...new Set([principal, ...respaldo])].filter(m => MOTORES_CLI.includes(m))
+  let ultimo = null
+  for (const m of cadena) {
+    if (m !== principal && !motorDisponible(m, agent, t)) continue
+    if (m === principal && m !== 'claude' && !motorDisponible(m, agent, t)) {
+      log(`  ${m} no está disponible para "${t?.tarea || 'el chat'}" (sin sesión, herramienta solo de Claude o cliente sin permiso de modelos gratis): uso el respaldo`)
+      continue
+    }
+    if (m !== principal) log(`  ↪ Respaldo: ${m}`)
+    const r = await correrMotor(m, agent, prompt, cwd, opts, t)
+    ultimo = { ...r, motor: m }
+    if (!r.limite && !r.permisoDenegado) return ultimo
+    log(r.limite ? `  ⚠ ${m} llegó a su límite de uso` : `  ⚠ ${m}: ${r.err}`)
+  }
+  return ultimo || { code: 1, json: null, raw: '', err: 'Ningún motor disponible para esta tarea', motor: principal }
 }
 
 // "Probar conexión" del panel: lista los modelos del proveedor con su clave
@@ -930,8 +1023,6 @@ async function syncApproved(t) {
 
 // ---------- ejecutar una tarea ----------
 async function runTask(t) {
-  running = t.id
-  busyWith = t.tarea
   const agent = agents.get(t.asignado)
   const ref = doc(db, 'tasks', t.id)
   const started = Date.now()
@@ -990,7 +1081,8 @@ async function runTask(t) {
   }
 
   if (failed) {
-    let msg = (result || res.json?.subtype || res.err || 'Sin respuesta de Claude Code').slice(0, 2000)
+    let msg = (result || res.json?.subtype || res.err || `Sin respuesta de ${res.motor || 'Claude Code'}`).slice(0, 2000)
+    if (res.limite) msg = `Todos los motores disponibles llegaron a su límite de uso (último: ${res.motor}). Se puede reintentar más tarde.`
     if (msg === 'error_max_turns') msg = 'El agente usó todos sus pasos antes de terminar. Lo que alcanzó a hacer quedó en su carpeta de entregas. Muévela a Correcciones con indicaciones más concretas para que la retome.'
     await updateDoc(ref, { ...base, agentStatus: 'error', agentError: msg })
     log(`✖ ${agent.name} falló en "${t.tarea}": ${msg.split('\n')[0]}`)
@@ -1046,7 +1138,7 @@ async function runTask(t) {
   try { saved = saveVersion(t, agent, result, cwd, started, n) } catch (e) { log('No pude guardar la versión:', e.message) }
   const versiones = [...prevVersions, {
     n, output: result.slice(0, 40000), archivos: saved?.archivos || [], fecha: new Date().toISOString(),
-    agente: agent.name, ...(revisionAgente ? { revision: revisionAgente.estado } : {}),
+    agente: agent.name, motor: res.motor || 'claude', ...(revisionAgente ? { revision: revisionAgente.estado } : {}),
     ...(conv.pdfs.length ? { pdfs: conv.pdfs } : {}), ...(conv.previews.length ? { preview: true } : {}),
   }].slice(-8)
 
@@ -1064,6 +1156,7 @@ async function runTask(t) {
     ...(extraTurns ? { 'costo.turnos': increment((res.json?.num_turns || 0) + extraTurns) } : {}),
     ...(t.agentOutput ? { agentPrevOutput: t.agentOutput.slice(0, MAX_OUTPUT) } : {}),
     agentOutput: result.slice(0, MAX_OUTPUT),
+    agentMotor: res.motor || 'claude',
     ...(stillMine ? { fechaEntrega: serverTimestamp() } : {}),
     conversionError: conv.error || null,
   })
@@ -1159,7 +1252,7 @@ const mentioned = (text) => [...agents.values()].filter(a => a.active !== false 
 
 async function handleChat(chatId, msg) {
   await updateDoc(msg.ref, { status: 'done' }).catch(() => {})
-  busyWith = 'Chat con ' + OWNER
+  chatOcupado = 'Chat con ' + OWNER
   heartbeat()
   try {
     if (chatId !== GROUP) {
@@ -1184,7 +1277,7 @@ async function handleChat(chatId, msg) {
       speakers = next
     }
   } finally {
-    busyWith = running ? busyWith : ''
+    chatOcupado = ''
     heartbeat()
   }
 }
@@ -1220,13 +1313,13 @@ async function hablarConCoordinador(text) {
   ].join('\n')
   const cwd = join(ROOT, 'trabajos', 'coordinador-chat')
   mkdirSync(cwd, { recursive: true })
-  busyWith = 'Conversación con ' + OWNER
+  chatOcupado = 'Conversación con ' + OWNER
   heartbeat()
   let res = await runClaude(prompt, cwd, { tools: toolsFor(coord), resume: session })
   if (session && (res.code !== 0 || res.json?.is_error) && !res.json?.result) {
     res = await runClaude(prompt, cwd, { tools: toolsFor(coord) }) // la sesión anterior ya no existe
   }
-  busyWith = running ? busyWith : ''
+  chatOcupado = ''
   heartbeat()
   if (res.json?.session_id) writeFileSync(SESSION_FILE, JSON.stringify({ id: res.json.session_id }))
   const result = (res.json?.result || '').trim()
@@ -1358,6 +1451,9 @@ async function main() {
     log('Telegram desactivado (falta TELEGRAM_BOT_TOKEN en .env)')
   }
 
+  await actualizarEstadoMotores().catch(() => {})
+  log('Motores: Claude Code' + Object.entries(estadoMotores).map(([k, v]) => ` · ${k}: ${v?.conectado ? 'conectado' : 'sin sesión'}`).join(''))
+  setInterval(() => actualizarEstadoMotores().catch(() => {}), 5 * 60_000)
   await heartbeat()
   setInterval(heartbeat, 60_000)
   setInterval(repartirTareasDeDepartamento, 60_000)
