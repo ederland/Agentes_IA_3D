@@ -39,6 +39,9 @@ Proyecto de código abierto: una oficina 3D con agentes de IA para cualquier neg
   `./salida/` de su tarea (`Write(./salida/**)`). Al terminar, `motor/entregables.mjs` convierte cada HTML de
   `salida/` en PDF con Chromium (sin JavaScript, solo archivos de esa carpeta e imágenes/fuentes por https) y guarda
   imágenes de las páginas en `previews/{taskId}`. `ReviewPanel` las muestra; `entregaDrive` guarda los links de Drive.
+- Permisos por tarea: `toolsFor(agent, t)` = grupos del rol + `taskTypes.herramientas` + `tasks.permisosExtra`
+  (`permisosDeTarea` en `motor/agencia.mjs`, solo nombres de grupos del catálogo). Solo un admin puede poner o cambiar
+  `permisosExtra` (reglas `sinPermisosNuevos` / `mismosPermisos`). Una tarea con permisos extra siempre va a Claude Code.
 - `firestore.rules` — reglas de seguridad. `tools/configurar.mjs` las personaliza.
 - `.claude/skills/instalar/` — asistente de instalación.
 

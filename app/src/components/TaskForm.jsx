@@ -6,6 +6,8 @@ import { logWork } from '../utils/worklog.js'
 import { sendTaskAssignedEmail } from '../utils/emailNotify.js'
 import Icon from './Icons.jsx'
 import ReviewPanel from './ReviewPanel.jsx'
+import PermisosPicker from './PermisosPicker.jsx'
+import CATALOGO from '../../../roles/catalogo.json'
 import { toLines, fromLines, DEPT_PREFIX } from '../agencia.js'
 
 export default function TaskForm() {
@@ -33,6 +35,8 @@ export default function TaskForm() {
     departamentoId: '', tipoTareaId: '',
     objetivo: '', resultadoEsperado: '', criterios: '', contexto: '', archivos: '', campos: {},
   })
+  // Permisos extra del agente solo para esta tarea (grupos del catálogo; solo un admin los cambia)
+  const [permisosExtra, setPermisosExtra] = useState([])
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
   const setB = (k, v) => { setBrief(b => ({ ...b, [k]: v })); setDirty(true) }
@@ -72,6 +76,7 @@ export default function TaskForm() {
         feedback: editingTask.feedback || '',
         rating: editingTask.rating || 0,
       })
+      setPermisosExtra(editingTask.permisosExtra || [])
       const b = editingTask.brief || {}
       setBrief({
         departamentoId: editingTask.departamentoId || '', tipoTareaId: editingTask.tipoTareaId || '',
@@ -85,6 +90,7 @@ export default function TaskForm() {
   // Campos de Agencia que se guardan en la tarea
   const deptAsignado = form.asignado.startsWith(DEPT_PREFIX) ? form.asignado.slice(DEPT_PREFIX.length) : ''
   const agencyFields = () => ({
+    ...(isAdmin ? { permisosExtra } : {}),
     asignado: deptAsignado ? '' : form.asignado,
     paraDepartamento: !!deptAsignado,
     clienteId: clientDocs.find(c => c.nombre === form.cliente)?.id || '',
@@ -444,6 +450,26 @@ export default function TaskForm() {
                 </div>
               </div>
             )}
+            {isAdmin && (agents.some(a => a.id === form.asignado) || deptAsignado) && (() => {
+              const ag = agents.find(a => a.id === form.asignado)
+              const base = {
+                ...Object.fromEntries((tipo?.herramientas || []).map(g => [g, 'del tipo de tarea'])),
+                ...Object.fromEntries((ag ? CATALOGO.roles[ag.rol]?.herramientas || [] : []).map(g => [g, 'ya lo tiene el rol'])),
+              }
+              return (
+                <details open={permisosExtra.length > 0} style={{ padding: '10px 14px', background: 'var(--bg-2)', borderRadius: 10 }}>
+                  <summary className="form-label" style={{ margin: 0, cursor: 'pointer' }}>
+                    Permisos del agente para esta tarea{permisosExtra.length ? ` (${permisosExtra.length} extra)` : ''}
+                  </summary>
+                  <div style={{ marginTop: 10 }}>
+                    <PermisosPicker value={permisosExtra} onChange={v => { setPermisosExtra(v); setDirty(true) }} base={base} />
+                    <p style={{ fontSize: 11, color: 'var(--text-3)', margin: '8px 0 0' }}>
+                      Solo para esta tarea. Los marcados en rojo dan acceso a tus datos personales. Nunca se le da al agente la terminal (Bash).
+                    </p>
+                  </div>
+                </details>
+              )
+            })()}
             {tipo?.plantillaBrief?.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '12px 14px', background: 'var(--bg-2)', borderRadius: 10 }}>
                 <span className="form-label" style={{ margin: 0 }}>Brief: {tipo.nombre}</span>

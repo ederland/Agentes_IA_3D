@@ -5,6 +5,7 @@ import { doc, setDoc, deleteDoc, writeBatch, serverTimestamp } from 'firebase/fi
 import Icon from '../components/Icons.jsx'
 import AgenciaTareas from './AgenciaTareas.jsx'
 import AgenciaSkills from './AgenciaSkills.jsx'
+import PermisosPicker from '../components/PermisosPicker.jsx'
 import CATALOGO from '../../../roles/catalogo.json'
 import { DEFAULT_DEPARTMENTS, EXAMPLE_TASK_TYPES, FIELD_TYPES, DELIVERY_FORMATS, PROVIDER_PRESETS, slugify, toLines, fromLines } from '../agencia.js'
 
@@ -223,6 +224,7 @@ function TypeModal({ type, departments, onClose, showToast }) {
     formatoEntrega: type.formatoEntrega || 'texto',
     checklist: toLines(type.checklist),
     campos: (type.plantillaBrief || []).map(c => ({ ...c })),
+    herramientas: type.herramientas || [],
   })
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const setCampo = (i, k, v) => set('campos', form.campos.map((c, j) => j === i ? { ...c, [k]: v } : c))
@@ -238,7 +240,7 @@ function TypeModal({ type, departments, onClose, showToast }) {
       nombre: form.nombre.trim(), descripcion: form.descripcion.trim(), departamento: form.departamento,
       rol: form.rol || null, revisor: form.revisor || null, formatoEntrega: form.formatoEntrega,
       capacidad: form.formatoEntrega === 'video' ? 'video' : form.formatoEntrega === 'pr' ? 'dev' : 'general',
-      checklist: fromLines(form.checklist), plantillaBrief,
+      checklist: fromLines(form.checklist), plantillaBrief, herramientas: form.herramientas,
     }, { merge: true })
     showToast('Tipo de tarea guardado')
     onClose()
@@ -301,6 +303,14 @@ function TypeModal({ type, departments, onClose, showToast }) {
             <label className="form-label">Checklist de revisión</label>
             <textarea className="form-textarea" rows={3} value={form.checklist} onChange={e => set('checklist', e.target.value)} />
             <span style={{ fontSize: 11, color: 'var(--text-3)' }}>Un criterio por línea. Se suma a los criterios de cada tarea.</span>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Permisos extra para este tipo de tarea</label>
+            <PermisosPicker value={form.herramientas} onChange={v => set('herramientas', v)}
+              base={Object.fromEntries((CATALOGO.roles[form.rol]?.herramientas || []).map(g => [g, 'ya lo tiene el rol']))} />
+            <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+              Cualquier agente que haga este tipo de tarea los recibe, aunque su rol no los tenga. Ej.: "Crear archivos y PDF" para un brochure.
+            </span>
           </div>
           <div className="form-group">
             <label className="form-label">Campos del brief</label>

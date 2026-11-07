@@ -19,7 +19,7 @@ export const EXAMPLE_TASK_TYPES = [
       { campo: 'contenido', etiqueta: 'Contenido o de dónde sacarlo (web, documento)', tipo: 'texto', requerido: true },
     ],
     checklist: ['Usa la identidad del cliente (colores, logo, tono)', 'Cada página cabe en A4 sin cortes', 'No inventa precios, cifras ni testimonios', 'Datos de contacto completos y correctos'],
-    revisor: 'revisor_calidad', formatoEntrega: 'archivos',
+    revisor: 'revisor_calidad', formatoEntrega: 'archivos', herramientas: ['salida'],
   },
   {
     id: 'ideas_posts', departamento: 'marketing', rol: 'copies_redes', nombre: 'Ideas de posts',
@@ -124,3 +124,19 @@ export const PROVIDER_PRESETS = [
 export const DEPT_PREFIX = 'dept:'
 export const esDeDepartamento = (t) => !!t?.paraDepartamento && !t?.asignado
 export const deptDeAgente = (a, catalogo) => a?.departamentoId || catalogo?.roles?.[a?.rol]?.departamento || ''
+
+// Grupos de permisos del catálogo (roles/catalogo.json → herramientas) con un nombre que se entienda.
+// "sensible": da acceso a datos personales del dueño; se marca en rojo.
+export const PERMISOS = [
+  { id: 'salida', label: 'Crear archivos y PDF', ayuda: 'Escribe solo en la carpeta salida/ de la tarea; el motor convierte el HTML en PDF con vista previa' },
+  { id: 'web', label: 'Buscar y leer páginas web' },
+  { id: 'archivos', label: 'Leer adjuntos de la tarea' },
+  { id: 'skills', label: 'Usar skills' },
+  { id: 'drive_lectura', label: 'Leer Google Drive' },
+  { id: 'drive_crear', label: 'Crear documentos en Google Drive' },
+  { id: 'entregas', label: 'Guardar imágenes y archivos (servidor de medios)' },
+  { id: 'editor_video', label: 'Editar video (servidor de medios)' },
+  { id: 'magnific_imagenes', label: 'Generar imágenes con Magnific (de pago)' },
+  { id: 'gmail', label: 'Leer tu Gmail y crear borradores', sensible: true },
+  { id: 'calendario', label: 'Ver y crear eventos en tu calendario', sensible: true },
+]
