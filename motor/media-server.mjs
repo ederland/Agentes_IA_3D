@@ -7,6 +7,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import ffmpegPath from 'ffmpeg-static'
+import ffprobeStatic from 'ffprobe-static'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
 import { join, dirname, basename, extname, isAbsolute, resolve } from 'node:path'
@@ -389,15 +390,17 @@ server.tool('limpiar_audio',
 function hyperframes(args, cwd) {
   return new Promise((res, rej) => {
     const bin = join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'hyperframes.cmd' : 'hyperframes')
-    // ffmpeg-static en el PATH; HYPERFRAMES_NO_TELEMETRY y CI evitan preguntas interactivas
-    const env = { ...process.env, PATH: `${dirname(ffmpegPath)}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH}`, CI: '1', HYPERFRAMES_NO_TELEMETRY: '1' }
+    // ffmpeg-static y ffprobe-static en el PATH (HyperFrames necesita los dos);
+    // HYPERFRAMES_NO_TELEMETRY y CI evitan preguntas interactivas
+    const sep = process.platform === 'win32' ? ';' : ':'
+    const env = { ...process.env, PATH: [dirname(ffmpegPath), dirname(ffprobeStatic.path), process.env.PATH].join(sep), CI: '1', HYPERFRAMES_NO_TELEMETRY: '1' }
     const p = spawn(`"${bin}"`, args, { cwd, env, shell: true, windowsHide: true })
     let out = ''
     p.stdout.on('data', d => { out += d })
     p.stderr.on('data', d => { out += d })
     p.stdin.end()
     const timer = setTimeout(() => p.kill(), 20 * 60 * 1000)
-    p.on('close', code => { clearTimeout(timer); code === 0 ? res(out) : rej(new Error(out.split('\n').filter(l => /error|Error|✖|failed/i.test(l)).slice(-8).join('\n') || out.slice(-1500))) })
+    p.on('close', code => { clearTimeout(timer); code === 0 ? res(out) : rej(new Error(out.split('\n').filter(l => /error|✖|✗|failed|not found/i.test(l)).slice(-8).join('\n') || out.slice(-1500))) })
   })
 }
 

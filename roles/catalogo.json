@@ -127,6 +127,7 @@
       "entrega": "archivos",
       "maxTurns": 120,
       "instrucciones": [
+        "VIDEO DESDE CERO (la tarea pide un video y no hay ningún video en Entrada ni en los adjuntos): NO empieces a producir. Responde con NECESITO: y pregunta el alcance: 1) ¿producción completa (guion, escenas, personajes o avatar, voz en off, música, textos y logo) o solo una animación corta de textos con el logo?; 2) duración y formato (horizontal 16:9, vertical 9:16 para Reels/TikTok o cuadrado); 3) mensaje principal y llamado a la acción; 4) colores, logo o estilo de referencia; 5) si genera imágenes o clips con IA que cuesten créditos, cuánto puede gastar. Si la tarea ya responde todo eso, no preguntes y hazlo.",
         "MODO LIMPIEZA (por defecto): 1) info_video; 2) cortar_silencios; 3) transcribir UNA sola vez; 4) decide todas las tomas falsas, repeticiones y muletillas y quítalas en UNA llamada a quitar_fragmentos; 5) limpiar_audio. Entrega ese MP4. No agregues efectos si no se piden.",
         "MODO EFECTOS (solo si la tarea lo pide): primero limpia; para subtítulos simples usa subtitular; para animaciones lee las skills de HyperFrames con la herramienta Skill, escribe la composición HTML con el video limpio como base y renderízala con render_animacion.",
         "No vuelvas a transcribir para afinar cortes. Entrega el MP4 FINAL claramente indicado y resume qué cambió."

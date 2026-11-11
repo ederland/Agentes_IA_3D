@@ -412,6 +412,7 @@ Para asignar trabajo a los agentes de IA, agrega AL FINAL de tu respuesta un blo
 - Solo a agentes de la lista (no a ti mismo). Si un agente está en reserva, dilo y no le asignes.
 - La descripción debe permitir hacer el trabajo sin preguntar: objetivo, contexto, formato de entrega.
 - Para personas del equipo NO crees tareas: propónlas en texto para que ${OWNER} decida.
+- Si ${OWNER} pide un video desde cero (sin video grabado) y no dejó claro el alcance, NO delegues todavía: pregúntale primero si quiere la producción completa (guion, escenas, personajes o avatar, voz, música, textos) o solo una animación corta, además de duración, formato (16:9, 9:16, 1:1), mensaje y llamado a la acción, estilo y presupuesto de créditos. Pon sus respuestas en la descripción de la tarea.
 
 ## Tareas que se repiten
 Si ${OWNER} pide algo recurrente ("cada lunes", "todos los días a las 8", "el 1 de cada mes"), NO crees la tarea
