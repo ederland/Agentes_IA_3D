@@ -3,7 +3,7 @@
 //
 // instalacion.json (lo escribe Claude durante la entrevista; NO lleva contraseñas):
 // {
-//   "negocio": { "nombre", "descripcion", "identidad", "tono", "color", "idioma", "logo" },
+//   "negocio": { "nombre", "descripcion", "identidad", "tono", "color", "idioma", "logo", "logoOscuro?", "favicon?" },
 //   "dueno": { "nombre", "email" },
 //   "app": { "nombre": "Nombre de la app" },
 //   "firebase": { "apiKey", "authDomain", "projectId", "storageBucket", "messagingSenderId", "appId" },
@@ -32,8 +32,10 @@ const url = `https://${fb.projectId}.web.app`
 writeFileSync(join(ROOT, 'app', '.env'), [
   `VITE_APP_NAME=${r.app?.nombre || `${r.negocio?.nombre || 'Mi'} · Oficina IA`}`,
   `VITE_COMPANY_NAME=${r.negocio?.nombre || 'Mi empresa'}`,
-  `VITE_BRAND_COLOR=${color}`,
+  `VITE_BRAND_COLOR="${color}"`, // entre comillas: sin ellas, '#' inicia un comentario y el color se pierde
   `VITE_LOGO_URL=${r.negocio?.logo || '/logo.svg'}`,
+  `VITE_LOGO_DARK_URL=${r.negocio?.logoOscuro || r.negocio?.logo || '/logo.svg'}`,
+  `VITE_FAVICON_URL=${r.negocio?.favicon || r.negocio?.logo || '/logo.svg'}`,
   `VITE_APP_URL=${url}`,
   `VITE_SUPER_ADMIN_EMAIL=${r.dueno.email.toLowerCase()}`,
   `VITE_FIREBASE_API_KEY=${fb.apiKey}`,
@@ -75,10 +77,11 @@ writeFileSync(negPath, JSON.stringify({
   agentes: old.agentes || {},
 }, null, 2) + '\n')
 
-// Reglas de Firestore con el correo del robot
+// Reglas de Firestore con el correo del robot y el del dueño
 const rulesPath = join(ROOT, 'firestore.rules')
 let rules = readFileSync(rulesPath, 'utf8')
 rules = rules.replace(/request\.auth\.token\.email == '[^']*'/, `request.auth.token.email == '${r.robotEmail}'`)
+rules = rules.replace(/request\.auth\.token\.email\.lower\(\) == '[^']*'/, `request.auth.token.email.lower() == '${r.dueno.email.toLowerCase()}'`)
 writeFileSync(rulesPath, rules)
 
 // Proyecto de Firebase para el CLI

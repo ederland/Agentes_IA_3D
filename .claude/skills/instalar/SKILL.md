@@ -32,7 +32,8 @@ Reúne:
 
 1. **Negocio:** nombre, a qué se dedica (2-3 líneas), tono de comunicación, idioma.
 2. **Marca:** color principal (hex), descripción corta de la identidad visual, logo opcional
-   (si da un archivo, cópialo a `app/public/logo.png` y usa `/logo.png`).
+   (si da un archivo, cópialo a `app/public/marca/` —carpeta ignorada por git— y usa `/marca/<archivo>`;
+   si tiene versión para fondo oscuro, va en `logoOscuro`, y un ícono cuadrado en `favicon`).
 3. **Dueño:** nombre y correo de Google con el que entrará (será el super admin).
 4. **Nombre de la app** (por defecto "<Negocio> · Oficina IA").
 5. **Equipo de agentes.** Muestra los roles de `roles/catalogo.json` (nombre y descripción de cada uno) y pregunta
@@ -58,8 +59,9 @@ Guíala paso a paso en https://console.firebase.google.com :
 4. **Authentication → Usuarios → Agregar usuario:** el **robot del motor**. Sugiere un alias de su Gmail,
    por ejemplo `sunombre+agentes@gmail.com` (no hay que crear ningún correo nuevo), y que invente una
    contraseña larga. **No te la debe decir.**
-5. **Authentication → Configuración → Acciones del usuario:** desmarcar "Habilitar creación (registro)"
-   para que nadie más pueda crear cuentas con correo.
+5. **No** desmarques "Habilitar creación (registro)" en Authentication → Configuración: ese interruptor bloquea
+   también las cuentas nuevas de Google (el dueño no podría entrar: `auth/admin-restricted-operation`).
+   La protección está en `firestore.rules`: toda cuenta nueva queda "pendiente" hasta que un admin la apruebe.
 6. **Firestore Database → Crear base de datos:** modo producción, la ubicación más cercana.
 
 ## Fase 3 · Configurar

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, createContext, useContext } from 'react'
 import { auth, db, googleProvider } from './firebase.js'
-import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth'
+import { onAuthStateChanged, signInWithRedirect, getRedirectResult, signOut } from 'firebase/auth'
 import { doc, getDoc, setDoc, deleteDoc, serverTimestamp, collection, onSnapshot, orderBy, query, getDocs } from 'firebase/firestore'
 
 import LoginPage from './pages/LoginPage.jsx'
@@ -64,6 +64,10 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
+    // Inicio de sesión por redirección (sin ventana emergente): al volver de Google, mostrar errores si los hubo
+    getRedirectResult(auth)
+      .then((res) => { if (res) requestNotifPermission() })
+      .catch((e) => { console.error('Inicio de sesión:', e.code, e.message); showToast(`Error al iniciar sesión (${e.code})`, 'error') })
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (u) {
         setUser(u)
@@ -168,7 +172,6 @@ export default function App() {
       const inviteSnap = await getDoc(doc(db, 'invites', u.email.toLowerCase()))
       if (inviteSnap.exists()) {
         invitedRole = inviteSnap.data().role || 'empleado'
-        await deleteDoc(doc(db, 'invites', u.email.toLowerCase()))
       }
     } catch (e) { /* sin invitación */ }
 
@@ -193,6 +196,10 @@ export default function App() {
       lastSeen: serverTimestamp(),
     }
     await setDoc(ref, profile, { merge: true })
+    // La invitación se borra DESPUÉS de crear el perfil: las reglas la consultan para validar el rol
+    if (invitedRole) {
+      try { await deleteDoc(doc(db, 'invites', u.email.toLowerCase())) } catch (e) { /* ya no existe */ }
+    }
     setUserProfile({ uid: u.uid, ...profile })
   }
 
@@ -220,10 +227,10 @@ export default function App() {
 
   const handleLogin = async () => {
     try {
-      await signInWithPopup(auth, googleProvider)
-      requestNotifPermission()
+      await signInWithRedirect(auth, googleProvider)
     } catch (e) {
-      showToast('Error al iniciar sesión', 'error')
+      console.error('Inicio de sesión:', e.code, e.message)
+      showToast(`Error al iniciar sesión (${e.code})`, 'error')
     }
   }
 

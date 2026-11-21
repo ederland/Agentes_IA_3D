@@ -24,18 +24,39 @@ service cloud.firestore {
     function isAgentTask(data) {
       return exists(/databases/$(database)/documents/agents/$(data.asignado));
     }
+    // Correo verificado por el proveedor (Google lo verifica; una cuenta de correo/contraseña nueva no)
+    function verifiedEmail() {
+      return isAuth() && request.auth.token.email_verified == true;
+    }
+    // Dueño (super admin). /instalar pone su correo.
+    function isOwner() {
+      return verifiedEmail() && request.auth.token.email.lower() == '__CORREO_DUENO__';
+    }
+    function invitePath() {
+      return /databases/$(database)/documents/invites/$(request.auth.token.email.lower());
+    }
+    // Rol que una persona puede darse a sí misma al registrarse:
+    // 'pending' (espera aprobación), 'admin' solo el dueño, o el rol exacto de su invitación.
+    function allowedSelfRole(role) {
+      return role == 'pending'
+        || (isOwner() && role == 'admin')
+        || (verifiedEmail() && exists(invitePath()) && get(invitePath()).data.get('role', 'empleado') == role);
+    }
 
     // Users: lectura para autenticados; escritura propia o de admin.
-    // CANDADO ANTI-FANTASMA: crear un usuario exige incluir el email real
-    // de la cuenta de Google — imposible crear docs sin identidad.
+    // CANDADO ANTI-FANTASMA: crear un usuario exige incluir el email real de la cuenta.
+    // CANDADO DE ROL: nadie puede darse un rol a sí mismo; solo un admin cambia roles.
     match /users/{userId} {
       allow read: if isAuth();
       allow create: if isAuth() && request.auth.uid == userId
-        && request.resource.data.email == request.auth.token.email;
+        && request.resource.data.email == request.auth.token.email
+        && allowedSelfRole(request.resource.data.get('role', 'pending'));
       allow update: if isAuth() && (
         isAdmin() ||
         (request.auth.uid == userId &&
-          (!('email' in resource.data) || request.resource.data.email == resource.data.email))
+          (!('email' in resource.data) || request.resource.data.email == resource.data.email) &&
+          (request.resource.data.get('role', null) == resource.data.get('role', null)
+            || allowedSelfRole(request.resource.data.get('role', 'pending'))))
       );
       allow delete: if isAdmin();
     }
@@ -65,9 +86,9 @@ service cloud.firestore {
       allow write: if isAdmin() || (isAgentBot() && docId == 'agentWorker');
     }
 
-    // Invitaciones: solo admins gestionan; el invitado necesita leer/borrar la suya al registrarse
+    // Invitaciones: solo admins gestionan; el invitado necesita leer/borrar SOLO la suya al registrarse
     match /invites/{email} {
-      allow read, delete: if isAuth();
+      allow read, delete: if isAdmin() || (verifiedEmail() && request.auth.token.email.lower() == email);
       allow create, update: if isAdmin();
     }
 

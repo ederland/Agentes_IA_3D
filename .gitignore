@@ -10,6 +10,9 @@ app/dist/
 motor/negocio.json
 motor/media-config.json
 .firebaserc
+app/public/marca/
+.firebase/
+temp/
 
 # Datos de trabajo del motor
 motor/logs/

@@ -33,5 +33,13 @@ export function applyBrand() {
   root.setProperty('--purple-hover', `rgb(${Math.min(255, r + 19)}, ${Math.min(255, g + 26)}, ${Math.min(255, b + 15)})`)
   root.setProperty('--purple-light', `rgba(${r}, ${g}, ${b}, 0.12)`)
   root.setProperty('--purple-mid', `rgba(${r}, ${g}, ${b}, 0.25)`)
+  root.setProperty('--brand-rgb', `${r}, ${g}, ${b}`)
+  // Matiz de la marca (0-360): tiñe los grises de fondo y los textos para que combinen con el color
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min
+  if (d > 0) {
+    let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4
+    h = Math.round(h * 60); if (h < 0) h += 360
+    root.setProperty('--brand-h', String(h))
+  }
   document.title = BRAND.appName
 }

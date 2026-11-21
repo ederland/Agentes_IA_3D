@@ -9,6 +9,13 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { createMinifig } from './minifig.js'
 import { NavGrid } from './navgrid.js'
 import { woodTexture, tileTexture, carpetTexture } from './textures.js'
+import { BRAND } from '../config.js'
+
+// Tonos de la marca para la Oficina (tela, neón y alfombra del laboratorio de agentes)
+const BRAND_COLOR = new THREE.Color(BRAND.color)
+const brandShade = (k) => '#' + BRAND_COLOR.clone().multiplyScalar(k).getHexString()
+const brandTint = (k) => '#' + BRAND_COLOR.clone().lerp(new THREE.Color('#ffffff'), k).getHexString()
+const BRAND_GLOW = brandTint(0.3)
 
 // ===== Planta (metros). x: oeste(-) a este(+); z: norte(-) a sur(+) =====
 // Franja norte: 3 oficinas privadas, sala de reuniones, cocina y baño.
@@ -47,7 +54,7 @@ function mats() {
     metal: new THREE.MeshStandardMaterial({ color: '#9aa1ab', roughness: 0.3, metalness: 0.8 }),
     dark: new THREE.MeshStandardMaterial({ color: '#23262d', roughness: 0.5 }),
     fabric: new THREE.MeshStandardMaterial({ color: '#2f3440', roughness: 0.85 }),
-    fabricPurple: new THREE.MeshStandardMaterial({ color: '#4b2bb3', roughness: 0.8 }),
+    fabricPurple: new THREE.MeshStandardMaterial({ color: brandShade(0.8), roughness: 0.8 }),
     leather: new THREE.MeshStandardMaterial({ color: '#1f2229', roughness: 0.45 }),
     leaf: new THREE.MeshStandardMaterial({ color: '#3f8f45', roughness: 0.7, flatShading: true }),
     leaf2: new THREE.MeshStandardMaterial({ color: '#5aa95e', roughness: 0.7, flatShading: true }),
@@ -59,7 +66,7 @@ function mats() {
     counter: new THREE.MeshStandardMaterial({ color: '#2e3138', roughness: 0.25 }),
     steel: new THREE.MeshStandardMaterial({ color: '#c9ced6', roughness: 0.25, metalness: 0.9 }),
     tv: new THREE.MeshStandardMaterial({ color: '#0f1115', roughness: 0.2, emissive: '#16233a', emissiveIntensity: 0.6 }),
-    purpleGlow: new THREE.MeshStandardMaterial({ color: '#7c4dff', emissive: '#7c4dff', emissiveIntensity: 1.2 }),
+    purpleGlow: new THREE.MeshStandardMaterial({ color: BRAND_GLOW, emissive: BRAND_GLOW, emissiveIntensity: 1.2 }),
   })
   return MAT
 }
@@ -275,7 +282,7 @@ function buildOffice(scene, nav) {
   const tile = tileTexture('#e3e6ea', '#c3c8cf', 4)
   const plaza = tileTexture('#cfd3d8', '#b3b8bf', 2, 1, 1, 9)
   const carpet = carpetTexture('#6b6f7c')
-  const labCarpet = carpetTexture('#3a3357', 1, 1, 17)
+  const labCarpet = carpetTexture(brandShade(0.35), 1, 1, 17)
 
   // Exterior y pisos
   b.floor(-28, -22, 28, 22, plaza, -0.02, 0.85)
@@ -813,7 +820,7 @@ export class OfficeScene {
     for (const ch of this.chars.values()) {
       this.animateChar(ch, dt, t)
       if (!ch.route.length && ch.spot.screen && ch.activity === 'typing') {
-        ch.spot.screen.emissive.set(ch.place?.zone === 'lab' || ch.place?.type === 'coordinator' ? '#7c4dff' : '#3aa0ff')
+        ch.spot.screen.emissive.set(ch.place?.zone === 'lab' || ch.place?.type === 'coordinator' ? BRAND_GLOW : '#3aa0ff')
       }
     }
     // Anillo holográfico del escritorio del coordinador

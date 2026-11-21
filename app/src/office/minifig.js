@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { torsoPrint } from './textures.js'
+import { BRAND } from '../config.js'
 
 // Personaje estilo minifigura de bloques, diseño propio.
 // Altura total ~1.0 con los pies en y=0; mira hacia +z.
@@ -138,7 +139,7 @@ function addAccessory(head, body, look) {
 }
 
 export function createMinifig(look = {}) {
-  const l = { torso: '#4700E0', legs: '#1f2937', hair: '#4b2e1a', style: 'pelo', ...look }
+  const l = { torso: BRAND.color, legs: '#1f2937', hair: '#4b2e1a', style: 'pelo', ...look }
   if (!look.arms) l.arms = l.torso
 
   const root = new THREE.Group()
@@ -184,7 +185,7 @@ export function createMinifig(look = {}) {
 
   // Carpeta con la tarea (visible cuando el personaje entrega o recibe trabajo)
   const doc = new THREE.Group()
-  const folder = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.012, 0.21), plastic('#4700E0'))
+  const folder = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.012, 0.21), plastic(BRAND.color))
   const paper = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.006, 0.19), plastic('#ffffff'))
   paper.position.y = 0.009
   doc.add(folder, paper)
@@ -197,7 +198,7 @@ export function createMinifig(look = {}) {
 
   // Anillo de selección en el piso
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.37, 40),
-    new THREE.MeshBasicMaterial({ color: '#4700E0', transparent: true, opacity: 0.9, side: THREE.DoubleSide }))
+    new THREE.MeshBasicMaterial({ color: BRAND.color, transparent: true, opacity: 0.9, side: THREE.DoubleSide }))
   ring.rotation.x = -Math.PI / 2
   ring.position.y = 0.025
   ring.visible = false

@@ -11,3 +11,5 @@ const app = initializeApp(FIREBASE_CONFIG)
 export const auth = getAuth(app)
 export const db = getFirestore(app)
 export const googleProvider = new GoogleAuthProvider()
+// Siempre mostrar el selector de cuentas de Google
+googleProvider.setCustomParameters({ prompt: 'select_account' })
